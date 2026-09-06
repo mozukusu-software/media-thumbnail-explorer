@@ -1,102 +1,121 @@
 # Media Thumbnail Explorer
 
-Windows上のフォルダーをツリーでたどり、画像・動画をサムネイル付きで確認するためのElectron製メディアブラウザーです。
+Media Thumbnail Explorer is an Electron-based media browser for Windows
+that lets you navigate folders in a tree and browse images and videos
+with thumbnails.
 
-大量の画像や動画が入ったフォルダーでも、エクスプローラーを行き来せず、フォルダーツリー・メディア一覧・プレビューを1つの画面で扱うことを目的としています。
+It is designed to make large media folders easier to inspect without
+repeatedly switching between Explorer windows by keeping the folder
+tree, media list, and preview in a single interface.
 
----
+------------------------------------------------------------------------
 
-## 主な機能
+## Features
 
-- Windowsドライブを自動検出してフォルダーツリーを表示
-- 子フォルダーを持つフォルダーだけ展開ボタンを表示
-- 画像・動画をサムネイル付き一覧で表示
-- 動画は代表フレームを自動選択してサムネイル化
-- 画像をクリックしてプレビュー表示
-- 画像をダブルクリックして全画面ビューアー表示
-- 全画面ビューアーで `←` / `→` による前後画像の移動
-- 動画をダブルクリックしてOS既定のアプリで開く
-- TIFF / HEIC / HEIF / JXLを表示用PNGへ変換
-- ウィンドウサイズ・位置・最大化状態を保存して次回起動時に復元
-- 最後に開いていたフォルダーを次回起動時に復元
-- アプリ終了時に実行中のFFmpeg / FFprobe子プロセスを終了
-- 独自アプリアイコン
+-   Automatically detects Windows drives and displays a folder tree
+-   Shows expand controls only for folders that actually contain
+    subfolders
+-   Displays images and videos in a thumbnail-based media list
+-   Automatically selects representative frames for video thumbnails
+-   Shows an image preview when an image is selected
+-   Opens images in a fullscreen viewer on double-click
+-   Supports previous/next image navigation with `Left Arrow` /
+    `Right Arrow` in the fullscreen viewer
+-   Opens videos with the OS default application on double-click
+-   Converts TIFF / HEIC / HEIF / JXL to PNG for display
+-   Restores window size, position, and maximized state on the next
+    launch
+-   Restores the last opened folder on the next launch
+-   Terminates running FFmpeg / FFprobe child processes when the
+    application exits
+-   Uses a custom application icon
 
----
+------------------------------------------------------------------------
 
-## 対応形式
+## Supported Formats
 
-### 画像
+### Images
 
-`jpg` / `jpeg` / `jfif` / `pjpeg` / `pjp` / `png` / `apng` / `gif` / `bmp` / `webp` / `avif` / `svg` / `ico` / `tif` / `tiff` / `heic` / `heif` / `jxl`
+`jpg` / `jpeg` / `jfif` / `pjpeg` / `pjp` / `png` / `apng` / `gif` /
+`bmp` / `webp` / `avif` / `svg` / `ico` / `tif` / `tiff` / `heic` /
+`heif` / `jxl`
 
-### 動画
+### Videos
 
 `mp4` / `m4v` / `webm` / `mov` / `avi` / `mkv` / `wmv` / `mpeg` / `mpg`
 
----
+------------------------------------------------------------------------
 
-## 動作要件
+## Requirements
 
-- Windows
-- Node.js
-- npm
-- Electronを実行できる環境
+-   Windows
+-   Node.js
+-   npm
+-   An environment capable of running Electron
 
-動画サムネイル生成にはFFmpeg / FFprobeを使用します。
+FFmpeg and FFprobe are used to generate video thumbnails.
 
-アプリは次の順序で実行ファイルを解決します。
+The application resolves the executables in the following order:
 
-1. `FFMPEG_PATH` / `FFPROBE_PATH` 環境変数
-2. npm依存関係に含まれるFFmpeg / FFprobe
-3. `PATH` 上の `ffmpeg` / `ffprobe`
+1.  `FFMPEG_PATH` / `FFPROBE_PATH` environment variables
+2.  FFmpeg / FFprobe provided by npm dependencies
+3.  `ffmpeg` / `ffprobe` available on `PATH`
 
----
+------------------------------------------------------------------------
 
-## インストール
+## Installation
 
-リポジトリを取得後、依存関係をインストールします。
+Install the dependencies after cloning the repository:
 
-```bash
+``` bash
 npm install
 ```
 
----
+------------------------------------------------------------------------
 
-## 起動
+## Running the Application
 
-```bash
+``` bash
 npm start
 ```
 
----
+------------------------------------------------------------------------
 
-## 基本操作
+## Basic Usage
 
-1. 左側のフォルダーツリーからフォルダーを選択します。
-2. 中央に画像・動画の一覧とサムネイルが表示されます。
-3. ファイルをクリックすると右側にプレビューが表示されます。
-4. 画像をダブルクリックすると全画面ビューアーを開きます。
-5. 全画面ビューアーでは `←` / `→` で前後の画像へ移動し、`Esc` で閉じます。
-6. 動画をダブルクリックするとOS既定のアプリで開きます。
+1.  Select a folder from the folder tree on the left.
+2.  Images and videos in that folder appear in the media list with
+    thumbnails.
+3.  Select a file to show it in the preview pane.
+4.  Double-click an image to open the fullscreen viewer.
+5.  In the fullscreen viewer, use `Left Arrow` / `Right Arrow` to move
+    between images and `Esc` to close it.
+6.  Double-click a video to open it with the OS default application.
 
-最後に開いていたフォルダーは保存され、次回起動時にツリー展開・フォルダー選択・メディア一覧まで復元されます。最後に選択していた個別ファイルやプレビュー内容は現在の復元対象ではありません。
+The last opened folder is saved and restored on the next launch,
+including the expanded tree path, selected folder, and media list. The
+previously selected individual file and preview content are not
+currently restored.
 
----
+------------------------------------------------------------------------
 
-## サムネイル生成
+## Thumbnail Generation
 
-画像はElectronのカスタム `media-file:` プロトコルを通して読み込みます。
+Images are loaded through the application's custom `media-file:`
+protocol.
 
-動画はFFprobeで長さを取得し、複数位置から候補フレームを抽出します。短い動画では中央付近、通常の動画では複数の時点を評価し、一覧表示に適した代表フレームを選びます。
+For videos, FFprobe is used to determine duration and FFmpeg extracts
+candidate frames from multiple positions. Short videos use a frame near
+the middle, while longer videos evaluate several positions to select a
+representative thumbnail.
 
-生成した動画サムネイルは一時ディレクトリへキャッシュされます。
+Generated video thumbnails are cached in a temporary directory.
 
----
+------------------------------------------------------------------------
 
-## ディレクトリ構成
+## Directory Structure
 
-```text
+``` text
 media-thumbnail-explorer/
 ├─ assets/
 │  └─ icon.png
@@ -118,40 +137,49 @@ media-thumbnail-explorer/
 └─ package-lock.json
 ```
 
-`doc/` には各バージョンの開発記録を残します。成功した実装だけでなく、途中で発生した不具合や失敗した試行も、その原因と修正内容が追える形で記録する方針です。
+The `doc/` directory contains detailed development records for each
+version. These records are intended to preserve not only successful
+implementations but also failed attempts, encountered issues, their
+causes, and the fixes that followed.
 
----
+------------------------------------------------------------------------
 
-## 開発状況
+## Development Status
 
-最新リリース:
+Latest release:
 
-```text
+``` text
 v0.2.1
 ```
 
-開発中:
+In development:
 
-```text
+``` text
 v0.2.2
 ```
 
-v0.2.2では、画像ビューアーのキーボード操作、ウィンドウ状態の保存、終了処理、アプリアイコン、最後に開いたフォルダーの復元、プロジェクトドキュメント整備を進めています。
+v0.2.2 includes image-viewer keyboard navigation, window-state
+persistence, improved application shutdown, a custom application icon,
+restoration of the last opened folder, and project documentation
+improvements.
 
-変更履歴は [CHANGELOG.md](CHANGELOG.md) を参照してください。
+See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
----
+------------------------------------------------------------------------
 
-## 開発方針
+## Development Policy
 
-- 機能実装とテスト結果をGit履歴上で分離する
-- 失敗した実装やNGテストも履歴から消さない
-- バージョン単位の詳細な開発記録を `doc/` に残す
-- メディアファイルそのものを変更しない
-- 不要な外部サービス依存を増やさない
+-   Keep implementation commits and test-result commits separate in Git
+    history
+-   Preserve failed implementations and failed tests instead of hiding
+    them from history
+-   Keep detailed version-specific development records under `doc/`
+-   Never modify the user's media files
+-   Avoid unnecessary dependencies on external services
 
----
+------------------------------------------------------------------------
 
 ## License
 
-ライセンスは現在整理中です。公開・再配布時はリポジトリに追加されるライセンス文書を確認してください。
+The license is currently being prepared. Check the license document
+included in the repository before public redistribution.
