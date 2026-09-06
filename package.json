@@ -1,0 +1,41 @@
+{
+  "name": "media-thumbnail-explorer",
+  "version": "0.1.0-dev.0",
+  "description": "Windows向け画像・動画サムネイルエクスプローラー",
+  "main": "src/main.js",
+  "author": "mozukuSu",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "sharp": "^0.34.3"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "jp.mozukusu.media-thumbnail-explorer",
+    "productName": "Media Thumbnail Explorer",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "allowScripts": {
+    "electron@38.8.6": true,
+    "electron-winstaller@5.4.0": true,
+    "sharp@0.34.5": true
+  }
+}
