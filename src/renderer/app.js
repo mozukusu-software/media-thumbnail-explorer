@@ -15,6 +15,8 @@ const imageViewerClose = document.querySelector('#imageViewerClose');
 let selectedTreeRow = null;
 let selectedFileRow = null;
 let selectedFile = null;
+let currentFolderFiles = [];
+let imageViewerFile = null;
 let generationToken = 0;
 let thumbnailLoadToken = 0;
 let activeThumbnailJobs = 0;
@@ -44,24 +46,49 @@ function showError(target, error) {
   target.append(message);
 }
 
-function openImageViewer(file) {
+function showImageInViewer(file) {
+  imageViewerFile = file;
   imageViewerImage.src = file.url;
   imageViewerImage.alt = file.name;
   imageViewerName.textContent = file.name;
+}
+
+function openImageViewer(file) {
+  showImageInViewer(file);
   imageViewer.classList.remove('hidden');
   imageViewerClose.focus();
   imageViewer.requestFullscreen?.().catch(() => { /* The in-window overlay remains available. */ });
 }
 
+function navigateImageViewer(direction) {
+  if (!imageViewerFile) return;
+  const images = currentFolderFiles.filter((file) => file.type === 'image');
+  const currentIndex = images.findIndex((file) => file.path === imageViewerFile.path);
+  if (currentIndex < 0) return;
+  const nextIndex = currentIndex + direction;
+  if (nextIndex < 0 || nextIndex >= images.length) return;
+  showImageInViewer(images[nextIndex]);
+}
+
 async function closeImageViewer() {
   imageViewer.classList.add('hidden');
   imageViewerImage.removeAttribute('src');
+  imageViewerFile = null;
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
 }
 
 imageViewerClose.addEventListener('click', closeImageViewer);
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && !imageViewer.classList.contains('hidden')) closeImageViewer();
+  if (imageViewer.classList.contains('hidden')) return;
+  if (event.key === 'Escape') {
+    closeImageViewer();
+  } else if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    navigateImageViewer(-1);
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    navigateImageViewer(1);
+  }
 });
 
 function createFolderIcon() {
@@ -205,12 +232,14 @@ async function selectFolder(folderPath, row) {
   currentPath.textContent = folderPath;
   currentPath.title = folderPath;
   fileList.replaceChildren();
+  currentFolderFiles = [];
   fileEmpty.textContent = '読み込み中…';
   fileCount.textContent = '…';
   clearPreview();
   try {
     const files = await window.mediaExplorer.getMediaFiles(folderPath);
     if (thumbnailToken !== thumbnailLoadToken) return;
+    currentFolderFiles = files;
     fileCount.textContent = `${files.length}件`;
     fileEmpty.textContent = files.length ? '' : 'このフォルダに対応する画像・動画はありません';
     files.forEach((file) => fileList.append(createFileRow(file, thumbnailToken)));
