@@ -118,16 +118,56 @@ async function getWindowsDrives() {
   return checks.filter(Boolean);
 }
 
+const DIRECTORY_PROBE_CONCURRENCY = 8;
+
+async function directoryHasChildren(directoryPath) {
+  try {
+    const handle = await fs.opendir(directoryPath);
+    try {
+      for await (const entry of handle) {
+        if (entry.isDirectory() && !entry.isSymbolicLink()) return true;
+      }
+      return false;
+    } finally {
+      await handle.close().catch(() => {});
+    }
+  } catch {
+    // If the directory cannot be inspected, keep the toggle available so the
+    // user can still attempt to open it and receive the normal error message.
+    return true;
+  }
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 async function listDirectories(parentPath) {
-  const entries = await fs.readdir(parentPath, { withFileTypes: true });
-  return entries
+  const entries = (await fs.readdir(parentPath, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-    .sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }))
-    .map((entry) => ({
+    .sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
+
+  return mapWithConcurrency(entries, DIRECTORY_PROBE_CONCURRENCY, async (entry) => {
+    const directoryPath = path.join(parentPath, entry.name);
+    return {
       name: entry.name,
-      path: path.join(parentPath, entry.name),
-      hasChildren: true
-    }));
+      path: directoryPath,
+      hasChildren: await directoryHasChildren(directoryPath)
+    };
+  });
 }
 
 async function listMediaFiles(folderPath) {

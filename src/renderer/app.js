@@ -146,6 +146,11 @@ function createTreeNode(item, depth = 0) {
   toggle.className = 'tree-toggle';
   toggle.type = 'button';
   toggle.setAttribute('aria-label', '展開');
+  toggle.setAttribute('aria-expanded', 'false');
+  if (!item.hasChildren) {
+    toggle.style.visibility = 'hidden';
+    toggle.disabled = true;
+  }
   const icon = createFolderIcon();
   const label = document.createElement('span');
   label.className = 'tree-label';
@@ -157,6 +162,7 @@ function createTreeNode(item, depth = 0) {
   node.append(row, children);
 
   async function expand() {
+    if (!item.hasChildren) return;
     if (node.classList.contains('expanded')) {
       node.classList.remove('expanded');
       toggle.setAttribute('aria-label', '展開');
@@ -181,7 +187,6 @@ function createTreeNode(item, depth = 0) {
     }
   }
 
-  toggle.setAttribute('aria-expanded', 'false');
   toggle.addEventListener('click', (event) => { event.stopPropagation(); expand(); });
   row.addEventListener('click', () => {
     if (selectedTreeRow !== row) selectFolder(item.path, row);
