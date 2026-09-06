@@ -188,7 +188,9 @@ function selectFile(file) {
     image.className = 'image-preview';
     image.alt = file.name;
     image.src = file.url;
+    image.title = 'クリックで全画面表示';
     image.onerror = () => showError(previewContent, new Error('画像を表示できませんでした。'));
+    image.addEventListener('click', () => openImageViewer(file));
     previewContent.append(image);
   } else {
     intervalControl.classList.remove('hidden');
