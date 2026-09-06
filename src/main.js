@@ -8,6 +8,7 @@ const { createHash } = require('node:crypto');
 
 let ffmpegExecutable = null;
 let ffprobeExecutable = null;
+const activeChildProcesses = new Set();
 
 function getFfmpegExecutable() {
   if (ffmpegExecutable) return ffmpegExecutable;
@@ -49,6 +50,7 @@ function runProcess(executable, args, maxOutputBytes = 10 * 1024 * 1024) {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });
+    activeChildProcesses.add(child);
     const stdout = [];
     const stderr = [];
     let stdoutBytes = 0;
@@ -70,13 +72,30 @@ function runProcess(executable, args, maxOutputBytes = 10 * 1024 * 1024) {
       stdout.push(chunk);
     });
     child.stderr.on('data', (chunk) => stderr.push(chunk));
-    child.on('error', (error) => finish(() => reject(error)));
-    child.on('close', (code) => finish(() => resolve({
+    child.on('error', (error) => {
+      activeChildProcesses.delete(child);
+      finish(() => reject(error));
+    });
+    child.on('close', (code) => {
+      activeChildProcesses.delete(child);
+      finish(() => resolve({
       code,
       stdout: Buffer.concat(stdout),
       stderr: Buffer.concat(stderr).toString('utf8').trim()
-    })));
+      }));
+    });
   });
+}
+
+function terminateChildProcesses() {
+  for (const child of activeChildProcesses) {
+    try {
+      child.kill();
+    } catch {
+      // The process may already have exited between iteration and kill().
+    }
+  }
+  activeChildProcesses.clear();
 }
 
 
@@ -425,6 +444,7 @@ async function createWindow() {
     minHeight: 640,
     backgroundColor: '#10141c',
     title: 'Media Thumbnail Explorer',
+    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -479,6 +499,8 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+app.on('before-quit', terminateChildProcesses);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
