@@ -373,10 +373,54 @@ async function getListThumbnail(filePath, type) {
   }
 }
 
-function createWindow() {
+const DEFAULT_WINDOW_BOUNDS = { width: 1440, height: 900 };
+const WINDOW_STATE_FILE = 'window-state.json';
+
+function getWindowStatePath() {
+  return path.join(app.getPath('userData'), WINDOW_STATE_FILE);
+}
+
+async function loadWindowState() {
+  try {
+    const state = JSON.parse(await fs.readFile(getWindowStatePath(), 'utf8'));
+    const bounds = state?.bounds;
+    const validBounds = bounds
+      && Number.isFinite(bounds.width)
+      && Number.isFinite(bounds.height)
+      && bounds.width >= 960
+      && bounds.height >= 640;
+
+    return {
+      bounds: validBounds ? bounds : DEFAULT_WINDOW_BOUNDS,
+      isMaximized: state?.isMaximized === true
+    };
+  } catch {
+    return { bounds: DEFAULT_WINDOW_BOUNDS, isMaximized: false };
+  }
+}
+
+async function saveWindowState(window) {
+  if (window.isDestroyed()) return;
+
+  // getNormalBounds() preserves the last non-maximized/non-minimized geometry,
+  // so closing while minimized never restores the app minimized next time.
+  const state = {
+    bounds: window.getNormalBounds(),
+    isMaximized: window.isMaximized()
+  };
+
+  try {
+    await fs.mkdir(app.getPath('userData'), { recursive: true });
+    await fs.writeFile(getWindowStatePath(), JSON.stringify(state, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Failed to save window state:', error);
+  }
+}
+
+async function createWindow() {
+  const state = await loadWindowState();
   const window = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...state.bounds,
     minWidth: 960,
     minHeight: 640,
     backgroundColor: '#10141c',
@@ -388,7 +432,17 @@ function createWindow() {
       sandbox: true
     }
   });
+
+  let closePending = false;
+  window.on('close', (event) => {
+    if (closePending) return;
+    event.preventDefault();
+    closePending = true;
+    saveWindowState(window).finally(() => window.destroy());
+  });
+
   window.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  if (state.isMaximized) window.maximize();
 }
 
 app.whenReady().then(() => {
