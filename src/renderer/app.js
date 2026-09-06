@@ -22,6 +22,7 @@ let thumbnailLoadToken = 0;
 let activeThumbnailJobs = 0;
 const thumbnailQueue = [];
 const MAX_THUMBNAIL_JOBS = 2;
+const LAST_FOLDER_STORAGE_KEY = 'media-thumbnail-explorer:last-folder';
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
@@ -188,31 +189,43 @@ function createTreeNode(item, depth = 0) {
   children.className = 'tree-children';
   node.append(row, children);
 
-  async function expand() {
-    if (!item.hasChildren) return;
+  async function expand(forceOpen = false) {
+    if (!item.hasChildren) return false;
     if (node.classList.contains('expanded')) {
+      if (forceOpen) return true;
       node.classList.remove('expanded');
       toggle.setAttribute('aria-label', '展開');
       toggle.setAttribute('aria-expanded', 'false');
-      return;
+      return false;
     }
     node.classList.add('expanded');
     toggle.setAttribute('aria-label', '折りたたむ');
     toggle.setAttribute('aria-expanded', 'true');
-    if (node.dataset.loaded === 'true') return;
+    if (node.dataset.loaded === 'true') return true;
     toggle.classList.add('loading');
     try {
       const directories = await window.mediaExplorer.getDirectories(item.path);
       directories.forEach((directory) => children.append(createTreeNode(directory, depth + 1)));
       node.dataset.loaded = 'true';
-      if (!directories.length) toggle.style.visibility = 'hidden';
+      if (!directories.length) {
+        toggle.style.visibility = 'hidden';
+        toggle.disabled = true;
+      }
+      return true;
     } catch (error) {
       node.classList.remove('expanded');
-      alert(`フォルダーを開けませんでした。\n${error.message}`);
+      toggle.setAttribute('aria-label', '展開');
+      toggle.setAttribute('aria-expanded', 'false');
+      if (!forceOpen) alert(`フォルダーを開けませんでした。\n${error.message}`);
+      return false;
     } finally {
       toggle.classList.remove('loading');
     }
   }
+
+  node._row = row;
+  node._children = children;
+  node._expand = expand;
 
   toggle.addEventListener('click', (event) => { event.stopPropagation(); expand(); });
   row.addEventListener('click', () => {
@@ -220,6 +233,84 @@ function createTreeNode(item, depth = 0) {
     expand();
   });
   return node;
+}
+
+function rememberFolder(folderPath) {
+  try {
+    localStorage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
+  } catch {
+    // Folder persistence is optional; browsing must continue if storage is unavailable.
+  }
+}
+
+function forgetRememberedFolder() {
+  try {
+    localStorage.removeItem(LAST_FOLDER_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures and keep the normal initial state.
+  }
+}
+
+function getRememberedFolder() {
+  try {
+    return localStorage.getItem(LAST_FOLDER_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeWindowsPath(folderPath) {
+  return folderPath.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function buildWindowsFolderPath(rootPath, parts) {
+  let current = rootPath;
+  return parts.map((part) => {
+    current = current.endsWith('\\') ? `${current}${part}` : `${current}\\${part}`;
+    return current;
+  });
+}
+
+async function restoreRememberedFolder() {
+  const rememberedPath = getRememberedFolder();
+  if (!rememberedPath) return;
+
+  const driveMatch = /^([a-zA-Z]:\\)(.*)$/.exec(rememberedPath);
+  if (!driveMatch) {
+    forgetRememberedFolder();
+    return;
+  }
+
+  const drivePath = driveMatch[1];
+  const parts = driveMatch[2].split('\\').filter(Boolean);
+  const targetPaths = [drivePath, ...buildWindowsFolderPath(drivePath, parts)];
+  let currentNode = Array.from(tree.children).find(
+    (node) => normalizeWindowsPath(node.dataset.path || '') === normalizeWindowsPath(drivePath)
+  );
+
+  if (!currentNode) {
+    forgetRememberedFolder();
+    return;
+  }
+
+  for (let index = 1; index < targetPaths.length; index += 1) {
+    const opened = await currentNode._expand?.(true);
+    if (!opened) {
+      forgetRememberedFolder();
+      return;
+    }
+    const targetPath = targetPaths[index];
+    currentNode = Array.from(currentNode._children?.children || []).find(
+      (node) => normalizeWindowsPath(node.dataset.path || '') === normalizeWindowsPath(targetPath)
+    );
+    if (!currentNode) {
+      forgetRememberedFolder();
+      return;
+    }
+  }
+
+  await selectFolder(rememberedPath, currentNode._row);
+  currentNode._row?.scrollIntoView({ block: 'nearest' });
 }
 
 async function selectFolder(folderPath, row) {
@@ -231,6 +322,7 @@ async function selectFolder(folderPath, row) {
   row.classList.add('selected');
   currentPath.textContent = folderPath;
   currentPath.title = folderPath;
+  rememberFolder(folderPath);
   fileList.replaceChildren();
   currentFolderFiles = [];
   fileEmpty.textContent = '読み込み中…';
@@ -396,7 +488,11 @@ async function initialize() {
   try {
     const drives = await window.mediaExplorer.getDrives();
     drives.forEach((drive) => tree.append(createTreeNode(drive)));
-    if (!drives.length) tree.textContent = 'ドライブを取得できませんでした';
+    if (!drives.length) {
+      tree.textContent = 'ドライブを取得できませんでした';
+      return;
+    }
+    await restoreRememberedFolder();
   } catch (error) {
     showError(tree, error);
   }
