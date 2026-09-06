@@ -4,8 +4,10 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const sharp = require('sharp');
 const { spawn } = require('node:child_process');
+const { createHash } = require('node:crypto');
 
 let ffmpegExecutable = null;
+let ffprobeExecutable = null;
 
 function getFfmpegExecutable() {
   if (ffmpegExecutable) return ffmpegExecutable;
@@ -22,6 +24,59 @@ function getFfmpegExecutable() {
     ffmpegExecutable = 'ffmpeg';
     return ffmpegExecutable;
   }
+}
+
+function getFfprobeExecutable() {
+  if (ffprobeExecutable) return ffprobeExecutable;
+
+  if (process.env.FFPROBE_PATH) {
+    ffprobeExecutable = process.env.FFPROBE_PATH;
+    return ffprobeExecutable;
+  }
+
+  try {
+    ffprobeExecutable = require('@derhuerst/ffprobe-static');
+    return ffprobeExecutable;
+  } catch {
+    ffprobeExecutable = 'ffprobe';
+    return ffprobeExecutable;
+  }
+}
+
+function runProcess(executable, args, maxOutputBytes = 10 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    const stdout = [];
+    const stderr = [];
+    let stdoutBytes = 0;
+    let settled = false;
+
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      callback();
+    };
+
+    child.stdout.on('data', (chunk) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > maxOutputBytes) {
+        child.kill();
+        finish(() => reject(new Error('プロセスの出力が大きすぎます。')));
+        return;
+      }
+      stdout.push(chunk);
+    });
+    child.stderr.on('data', (chunk) => stderr.push(chunk));
+    child.on('error', (error) => finish(() => reject(error)));
+    child.on('close', (code) => finish(() => resolve({
+      code,
+      stdout: Buffer.concat(stdout),
+      stderr: Buffer.concat(stderr).toString('utf8').trim()
+    })));
+  });
 }
 
 
@@ -109,6 +164,37 @@ async function openVideo(filePath) {
 }
 
 
+async function extractVideoFrame(filePath, timeSeconds, width = 320, height = 240) {
+  const args = [
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-ss', timeSeconds.toFixed(3),
+    '-i', filePath,
+    '-map', '0:V:0',
+    '-frames:v', '1',
+    '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+    '-q:v', '3',
+    '-f', 'image2pipe',
+    '-vcodec', 'mjpeg',
+    'pipe:1'
+  ];
+
+  let result;
+  try {
+    result = await runProcess(getFfmpegExecutable(), args);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error('FFmpegが見つかりません。ffmpeg-staticをインストールするか、FFMPEG_PATHを設定してください。');
+    }
+    throw error;
+  }
+
+  if (result.code !== 0 || result.stdout.length === 0) {
+    throw new Error(result.stderr || `FFmpegが終了コード ${result.code} で失敗しました。`);
+  }
+  return result.stdout;
+}
+
 async function generateVideoThumbnail(filePath, timeSeconds) {
   if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) {
     return { ok: false, error: '動画のパスが正しくありません。' };
@@ -123,65 +209,128 @@ async function generateVideoThumbnail(filePath, timeSeconds) {
   try {
     const stat = await fs.stat(filePath);
     if (!stat.isFile()) return { ok: false, error: '動画ファイルが見つかりません。' };
+    const image = await extractVideoFrame(filePath, timeSeconds);
+    return { ok: true, mime: 'image/jpeg', data: image.toString('base64') };
   } catch (error) {
     return { ok: false, error: error.message };
   }
+}
 
+async function getVideoDuration(filePath) {
   const args = [
-    '-hide_banner',
-    '-loglevel', 'error',
-    '-ss', timeSeconds.toFixed(3),
-    '-i', filePath,
-    '-map', '0:V:0',
-    '-frames:v', '1',
-    '-vf', 'scale=320:240:force_original_aspect_ratio=decrease',
-    '-q:v', '3',
-    '-f', 'image2pipe',
-    '-vcodec', 'mjpeg',
-    'pipe:1'
+    '-v', 'error',
+    '-select_streams', 'V:0',
+    '-show_entries', 'format=duration:stream=duration',
+    '-of', 'json',
+    filePath
   ];
 
-  return new Promise((resolve) => {
-    const child = spawn(getFfmpegExecutable(), args, {
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    const output = [];
-    const errors = [];
-    let outputBytes = 0;
-    const maxOutputBytes = 10 * 1024 * 1024;
+  let result;
+  try {
+    result = await runProcess(getFfprobeExecutable(), args, 1024 * 1024);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error('FFprobeが見つかりません。@derhuerst/ffprobe-staticをインストールするか、FFPROBE_PATHを設定してください。');
+    }
+    throw error;
+  }
+  if (result.code !== 0) throw new Error(result.stderr || 'FFprobeで動画情報を取得できませんでした。');
 
-    child.stdout.on('data', (chunk) => {
-      outputBytes += chunk.length;
-      if (outputBytes > maxOutputBytes) {
-        child.kill();
-        return;
-      }
-      output.push(chunk);
-    });
-    child.stderr.on('data', (chunk) => errors.push(chunk));
+  const info = JSON.parse(result.stdout.toString('utf8'));
+  const candidates = [
+    Number(info?.format?.duration),
+    ...(Array.isArray(info?.streams) ? info.streams.map((stream) => Number(stream.duration)) : [])
+  ].filter((duration) => Number.isFinite(duration) && duration > 0);
+  if (!candidates.length) throw new Error('動画の長さを取得できませんでした。');
+  return Math.max(...candidates);
+}
 
-    child.on('error', (error) => {
-      const message = error.code === 'ENOENT'
-        ? 'FFmpegが見つかりません。ffmpeg-staticをインストールするか、FFMPEG_PATHを設定してください。'
-        : error.message;
-      resolve({ ok: false, error: message });
-    });
+async function scoreThumbnail(image) {
+  const stats = await sharp(image).stats();
+  const channels = stats.channels.slice(0, 3);
+  const mean = channels.reduce((sum, channel) => sum + channel.mean, 0) / Math.max(1, channels.length);
+  const contrast = channels.reduce((sum, channel) => sum + channel.stdev, 0) / Math.max(1, channels.length);
+  const entropy = Number.isFinite(stats.entropy) ? stats.entropy : 0;
+  const extremePenalty = mean < 20 || mean > 245 ? 120 : 0;
+  return contrast * 1.5 + entropy * 12 + Math.min(mean, 255 - mean) * 0.25 - extremePenalty;
+}
 
-    child.on('close', (code) => {
-      if (outputBytes > maxOutputBytes) {
-        resolve({ ok: false, error: 'サムネイル画像が大きすぎます。' });
-        return;
+function getThumbnailCachePath(filePath, stat, type) {
+  const cacheKey = createHash('sha1')
+    .update(`${type}\0${filePath.toLowerCase()}\0${stat.size}\0${stat.mtimeMs}`)
+    .digest('hex');
+  return path.join(app.getPath('temp'), 'media-thumbnail-explorer', 'thumbnails', `${cacheKey}.jpg`);
+}
+
+async function createImageListThumbnail(filePath) {
+  return sharp(filePath, { pages: 1, animated: false })
+    .rotate()
+    .resize(160, 100, { fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#090d13' })
+    .jpeg({ quality: 80, mozjpeg: true })
+    .toBuffer();
+}
+
+async function createVideoListThumbnail(filePath) {
+  const duration = await getVideoDuration(filePath);
+  const fractions = duration < 3 ? [0.5] : [0.1, 0.25, 0.4];
+  let bestImage = null;
+  let bestScore = -Infinity;
+
+  for (const fraction of fractions) {
+    const time = Math.min(Math.max(duration * fraction, 0), Math.max(0, duration - 0.1));
+    try {
+      const image = await extractVideoFrame(filePath, time, 160, 100);
+      const score = await scoreThumbnail(image);
+      if (score > bestScore) {
+        bestScore = score;
+        bestImage = image;
       }
-      const image = Buffer.concat(output);
-      if (code !== 0 || image.length === 0) {
-        const stderr = Buffer.concat(errors).toString('utf8').trim();
-        resolve({ ok: false, error: stderr || `FFmpegが終了コード ${code} で失敗しました。` });
-        return;
-      }
-      resolve({ ok: true, mime: 'image/jpeg', data: image.toString('base64') });
-    });
-  });
+    } catch {
+      // Try the next representative position.
+    }
+  }
+
+  if (!bestImage) throw new Error('動画から代表サムネイルを取得できませんでした。');
+  return bestImage;
+}
+
+async function getListThumbnail(filePath, type) {
+  if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) {
+    return { ok: false, error: 'メディアのパスが正しくありません。' };
+  }
+
+  const extension = path.extname(filePath).toLowerCase();
+  if (type === 'image' && !IMAGE_EXTENSIONS.has(extension)) {
+    return { ok: false, error: '画像ファイルではありません。' };
+  }
+  if (type === 'video' && !VIDEO_EXTENSIONS.has(extension)) {
+    return { ok: false, error: '動画ファイルではありません。' };
+  }
+  if (type !== 'image' && type !== 'video') {
+    return { ok: false, error: '対応していないメディア種別です。' };
+  }
+
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return { ok: false, error: 'メディアファイルが見つかりません。' };
+
+    const cachePath = getThumbnailCachePath(filePath, stat, type);
+    let image;
+    try {
+      image = await fs.readFile(cachePath);
+    } catch {
+      image = type === 'image'
+        ? await createImageListThumbnail(filePath)
+        : await createVideoListThumbnail(filePath);
+      await fs.mkdir(path.dirname(cachePath), { recursive: true });
+      await fs.writeFile(cachePath, image);
+    }
+
+    return { ok: true, dataUrl: `data:image/jpeg;base64,${image.toString('base64')}` };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 }
 
 function createWindow() {
@@ -229,6 +378,7 @@ app.whenReady().then(() => {
   ipcMain.handle('fs:media', (_event, folderPath) => listMediaFiles(folderPath));
   ipcMain.handle('shell:open-video', (_event, filePath) => openVideo(filePath));
   ipcMain.handle('video:thumbnail', (_event, filePath, timeSeconds) => generateVideoThumbnail(filePath, timeSeconds));
+  ipcMain.handle('media:list-thumbnail', (_event, filePath, type) => getListThumbnail(filePath, type));
   createWindow();
 
   app.on('activate', () => {

@@ -16,6 +16,10 @@ let selectedTreeRow = null;
 let selectedFileRow = null;
 let selectedFile = null;
 let generationToken = 0;
+let thumbnailLoadToken = 0;
+let activeThumbnailJobs = 0;
+const thumbnailQueue = [];
+const MAX_THUMBNAIL_JOBS = 2;
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
@@ -60,6 +64,72 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !imageViewer.classList.contains('hidden')) closeImageViewer();
 });
 
+function createFolderIcon() {
+  const wrapper = document.createElement('span');
+  wrapper.className = 'folder-icon';
+  wrapper.setAttribute('aria-hidden', 'true');
+
+  const closed = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  closed.classList.add('folder-icon-svg', 'folder-icon-closed');
+  closed.setAttribute('viewBox', '0 0 24 24');
+  closed.innerHTML = '<path d="M2.5 6.25A2.25 2.25 0 0 1 4.75 4h4.1l2 2H19.25A2.25 2.25 0 0 1 21.5 8.25v9A2.25 2.25 0 0 1 19.25 19H4.75A2.25 2.25 0 0 1 2.5 16.75z"/>';
+
+  const open = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  open.classList.add('folder-icon-svg', 'folder-icon-open');
+  open.setAttribute('viewBox', '0 0 24 24');
+  open.innerHTML = '<path d="M2.75 7V6.25A2.25 2.25 0 0 1 5 4h3.7l2 2H19a2 2 0 0 1 2 2v.65H6.1A2.4 2.4 0 0 0 3.8 10.4L2.75 14z"/><path d="M5.1 9.5h15.65c.7 0 1.2.68 1 1.35l-1.8 6.15A2.75 2.75 0 0 1 17.3 19H4.5a2 2 0 0 1-1.92-2.56l1.12-4.9A1.45 1.45 0 0 1 5.1 9.5z"/>';
+
+  wrapper.append(closed, open);
+  return wrapper;
+}
+
+function createThumbnailPlaceholder(file) {
+  const placeholder = document.createElement('span');
+  placeholder.className = 'file-thumbnail-placeholder';
+  placeholder.textContent = file.type === 'image' ? '▧' : '▶';
+  return placeholder;
+}
+
+function setThumbnailImage(container, src, file) {
+  const image = new Image();
+  image.alt = `${file.name} のサムネイル`;
+  image.loading = 'lazy';
+  image.addEventListener('load', () => {
+    container.replaceChildren(image);
+    container.classList.remove('loading');
+  }, { once: true });
+  image.addEventListener('error', () => {
+    container.replaceChildren(createThumbnailPlaceholder(file));
+    container.classList.remove('loading');
+  }, { once: true });
+  image.src = src;
+}
+
+function pumpThumbnailQueue() {
+  while (activeThumbnailJobs < MAX_THUMBNAIL_JOBS && thumbnailQueue.length) {
+    const job = thumbnailQueue.shift();
+    if (job.token !== thumbnailLoadToken) continue;
+    activeThumbnailJobs += 1;
+    window.mediaExplorer.getListThumbnail(job.file.path, job.file.type)
+      .then((result) => {
+        if (job.token !== thumbnailLoadToken) return;
+        if (result?.ok && result.dataUrl) setThumbnailImage(job.container, result.dataUrl, job.file);
+        else job.container.classList.remove('loading');
+      })
+      .catch(() => job.container.classList.remove('loading'))
+      .finally(() => {
+        activeThumbnailJobs -= 1;
+        pumpThumbnailQueue();
+      });
+  }
+}
+
+function loadFileThumbnail(file, container, token) {
+  container.classList.add('loading');
+  thumbnailQueue.push({ file, container, token });
+  pumpThumbnailQueue();
+}
+
 function createTreeNode(item, depth = 0) {
   const node = document.createElement('div');
   node.className = 'tree-node';
@@ -74,9 +144,7 @@ function createTreeNode(item, depth = 0) {
   toggle.className = 'tree-toggle';
   toggle.type = 'button';
   toggle.setAttribute('aria-label', '展開');
-  const icon = document.createElement('span');
-  icon.className = 'folder-icon';
-  icon.textContent = '●';
+  const icon = createFolderIcon();
   const label = document.createElement('span');
   label.className = 'tree-label';
   label.textContent = item.name;
@@ -89,9 +157,13 @@ function createTreeNode(item, depth = 0) {
   async function expand() {
     if (node.classList.contains('expanded')) {
       node.classList.remove('expanded');
+      toggle.setAttribute('aria-label', '展開');
+      toggle.setAttribute('aria-expanded', 'false');
       return;
     }
     node.classList.add('expanded');
+    toggle.setAttribute('aria-label', '折りたたむ');
+    toggle.setAttribute('aria-expanded', 'true');
     if (node.dataset.loaded === 'true') return;
     toggle.classList.add('loading');
     try {
@@ -107,15 +179,21 @@ function createTreeNode(item, depth = 0) {
     }
   }
 
+  toggle.setAttribute('aria-expanded', 'false');
   toggle.addEventListener('click', (event) => { event.stopPropagation(); expand(); });
-  row.addEventListener('dblclick', expand);
-  row.addEventListener('click', () => selectFolder(item.path, row));
+  row.addEventListener('click', () => {
+    if (selectedTreeRow !== row) selectFolder(item.path, row);
+    expand();
+  });
   return node;
 }
 
 async function selectFolder(folderPath, row) {
+  const thumbnailToken = ++thumbnailLoadToken;
+  thumbnailQueue.length = 0;
   if (selectedTreeRow) selectedTreeRow.classList.remove('selected');
   selectedTreeRow = row;
+  selectedFileRow = null;
   row.classList.add('selected');
   currentPath.textContent = folderPath;
   currentPath.title = folderPath;
@@ -125,24 +203,29 @@ async function selectFolder(folderPath, row) {
   clearPreview();
   try {
     const files = await window.mediaExplorer.getMediaFiles(folderPath);
+    if (thumbnailToken !== thumbnailLoadToken) return;
     fileCount.textContent = `${files.length}件`;
     fileEmpty.textContent = files.length ? '' : 'このフォルダに対応する画像・動画はありません';
-    files.forEach((file) => fileList.append(createFileRow(file)));
+    files.forEach((file) => fileList.append(createFileRow(file, thumbnailToken)));
   } catch (error) {
+    if (thumbnailToken !== thumbnailLoadToken) return;
     fileCount.textContent = '0件';
     fileEmpty.textContent = 'フォルダを読み込めませんでした';
     showError(fileList, error);
   }
 }
 
-function createFileRow(file) {
+function createFileRow(file, thumbnailToken) {
   const row = document.createElement('div');
   row.className = 'file-row';
   row.title = file.path;
-  const icon = document.createElement('div');
-  icon.className = 'file-type';
-  icon.textContent = file.type === 'image' ? '▧' : '▶';
+
+  const thumbnail = document.createElement('div');
+  thumbnail.className = 'file-thumbnail';
+  thumbnail.append(createThumbnailPlaceholder(file));
+
   const details = document.createElement('div');
+  details.className = 'file-details';
   const name = document.createElement('div');
   name.className = 'file-name';
   name.textContent = file.name;
@@ -150,7 +233,9 @@ function createFileRow(file) {
   meta.className = 'file-meta';
   meta.textContent = `${file.type === 'image' ? '画像' : '動画'} · ${formatBytes(file.size)}`;
   details.append(name, meta);
-  row.append(icon, details);
+  row.append(thumbnail, details);
+  loadFileThumbnail(file, thumbnail, thumbnailToken);
+
   row.addEventListener('click', () => {
     if (selectedFileRow) selectedFileRow.classList.remove('selected');
     selectedFileRow = row;
