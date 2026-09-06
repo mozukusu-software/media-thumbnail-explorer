@@ -93,7 +93,6 @@ function createThumbnailPlaceholder(file) {
 function setThumbnailImage(container, src, file) {
   const image = new Image();
   image.alt = `${file.name} のサムネイル`;
-  image.loading = 'lazy';
   image.addEventListener('load', () => {
     container.replaceChildren(image);
     container.classList.remove('loading');
@@ -173,7 +172,7 @@ function createTreeNode(item, depth = 0) {
       if (!directories.length) toggle.style.visibility = 'hidden';
     } catch (error) {
       node.classList.remove('expanded');
-      alert(`フォルダーを開けませんでした。\n${error.message}`);
+      alert(`フォルダーを開けませんでした、En${error.message}`);
     } finally {
       toggle.classList.remove('loading');
     }
@@ -205,7 +204,7 @@ async function selectFolder(folderPath, row) {
     const files = await window.mediaExplorer.getMediaFiles(folderPath);
     if (thumbnailToken !== thumbnailLoadToken) return;
     fileCount.textContent = `${files.length}件`;
-    fileEmpty.textContent = files.length ? '' : 'このフォルダに対応する画像・動画はありません';
+    fileEmpty.textContent = files.length ? '' : 'こ�Eフォルダに対応する画像�E動画はありません';
     files.forEach((file) => fileList.append(createFileRow(file, thumbnailToken)));
   } catch (error) {
     if (thumbnailToken !== thumbnailLoadToken) return;
@@ -231,7 +230,7 @@ function createFileRow(file, thumbnailToken) {
   name.textContent = file.name;
   const meta = document.createElement('div');
   meta.className = 'file-meta';
-  meta.textContent = `${file.type === 'image' ? '画像' : '動画'} · ${formatBytes(file.size)}`;
+  meta.textContent = `${file.type === 'image' ? '画僁E : '動画'} · ${formatBytes(file.size)}`;
   details.append(name, meta);
   row.append(thumbnail, details);
   loadFileThumbnail(file, thumbnail, thumbnailToken);
@@ -245,7 +244,7 @@ function createFileRow(file, thumbnailToken) {
   if (file.type === 'video') {
     row.addEventListener('dblclick', async () => {
       const result = await window.mediaExplorer.openVideo(file.path);
-      if (!result.ok) alert(`既定のアプリで動画を開けませんでした。\n${result.error}`);
+      if (!result.ok) alert(`既定�Eアプリで動画を開けませんでした、En${result.error}`);
     });
   } else {
     row.addEventListener('dblclick', () => openImageViewer(file));
@@ -256,9 +255,9 @@ function createFileRow(file, thumbnailToken) {
 function clearPreview() {
   generationToken += 1;
   selectedFile = null;
-  selectedName.textContent = 'ファイル未選択';
+  selectedName.textContent = 'ファイル未選抁E;
   intervalControl.classList.add('hidden');
-  previewContent.innerHTML = '<div class="preview-placeholder">画像または動画をクリックすると<br>ここに表示されます</div>';
+  previewContent.innerHTML = '<div class="preview-placeholder">画像また�E動画をクリチE��すると<br>ここに表示されまぁE/div>';
 }
 
 function selectFile(file) {
@@ -273,8 +272,8 @@ function selectFile(file) {
     image.className = 'image-preview';
     image.alt = file.name;
     image.src = file.url;
-    image.title = 'クリックで全画面表示';
-    image.onerror = () => showError(previewContent, new Error('画像を表示できませんでした。'));
+    image.title = 'クリチE��で全画面表示';
+    image.onerror = () => showError(previewContent, new Error('画像を表示できませんでした、E));
     image.addEventListener('click', () => openImageViewer(file));
     previewContent.append(image);
   } else {
@@ -286,7 +285,7 @@ function selectFile(file) {
 function once(target, eventName) {
   return new Promise((resolve, reject) => {
     const onSuccess = () => { cleanup(); resolve(); };
-    const onError = () => { cleanup(); reject(new Error('動画を読み込めませんでした。Electronが対応していないコーデックの可能性があります。')); };
+    const onError = () => { cleanup(); reject(new Error('動画を読み込めませんでした、Electronが対応してぁE��ぁE��ーチE��クの可能性があります、E)); };
     const cleanup = () => { target.removeEventListener(eventName, onSuccess); target.removeEventListener('error', onError); };
     target.addEventListener(eventName, onSuccess, { once: true });
     target.addEventListener('error', onError, { once: true });
@@ -308,8 +307,8 @@ async function renderVideo(file) {
   const cancel = document.createElement('button');
   cancel.type = 'button';
   cancel.className = 'cancel-button';
-  cancel.textContent = '生成を中止';
-  cancel.addEventListener('click', () => { generationToken += 1; statusText.textContent = 'サムネイル生成を中止しました'; cancel.remove(); });
+  cancel.textContent = '生�Eを中止';
+  cancel.addEventListener('click', () => { generationToken += 1; statusText.textContent = 'サムネイル生�Eを中止しました'; cancel.remove(); });
   status.append(statusText, cancel);
   const grid = document.createElement('div');
   grid.className = 'thumbnail-grid';
@@ -318,17 +317,17 @@ async function renderVideo(file) {
   try {
     await once(player, 'loadedmetadata');
     if (token !== generationToken) return;
-    if (!Number.isFinite(player.duration) || player.duration <= 0) throw new Error('動画の長さを取得できませんでした。');
+    if (!Number.isFinite(player.duration) || player.duration <= 0) throw new Error('動画の長さを取得できませんでした、E);
     const interval = Number(intervalSelect.value);
     const times = [];
     for (let time = 0; time < player.duration; time += interval) times.push(time);
-    statusText.textContent = `0 / ${times.length}枚を生成中`;
+    statusText.textContent = `0 / ${times.length}枚を生�E中`;
 
     for (let index = 0; index < times.length; index += 1) {
       if (token !== generationToken) return;
       const result = await window.mediaExplorer.getVideoThumbnail(file.path, times[index]);
       if (token !== generationToken) return;
-      if (!result?.ok) throw new Error(result?.error || 'サムネイルを生成できませんでした。');
+      if (!result?.ok) throw new Error(result?.error || 'サムネイルを生成できませんでした、E);
 
       const card = document.createElement('div');
       card.className = 'thumbnail-card';
@@ -340,11 +339,11 @@ async function renderVideo(file) {
       timeLabel.textContent = formatTime(times[index]);
       card.append(image, timeLabel);
       grid.append(card);
-      statusText.textContent = `${index + 1} / ${times.length}枚を生成中`;
+      statusText.textContent = `${index + 1} / ${times.length}枚を生�E中`;
       if (index % 4 === 3) await new Promise(requestAnimationFrame);
     }
     if (token === generationToken) {
-      statusText.textContent = `${times.length}枚のサムネイルを生成しました`;
+      statusText.textContent = `${times.length}枚�Eサムネイルを生成しました`;
       cancel.remove();
     }
   } catch (error) {
