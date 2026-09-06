@@ -206,13 +206,6 @@ function once(target, eventName) {
   });
 }
 
-async function seekVideo(video, time) {
-  if (Math.abs(video.currentTime - time) < 0.05 && video.readyState >= 2) return;
-  const done = once(video, 'seeked');
-  video.currentTime = time;
-  await done;
-}
-
 async function renderVideo(file) {
   const token = ++generationToken;
   previewContent.replaceChildren();
@@ -221,10 +214,6 @@ async function renderVideo(file) {
   player.controls = true;
   player.preload = 'metadata';
   player.src = file.url;
-  const extractor = document.createElement('video');
-  extractor.preload = 'auto';
-  extractor.muted = true;
-  extractor.src = file.url;
   const status = document.createElement('div');
   status.className = 'generation-status';
   const statusText = document.createElement('span');
@@ -240,29 +229,25 @@ async function renderVideo(file) {
   previewContent.append(player, status, grid);
 
   try {
-    await Promise.all([once(player, 'loadedmetadata'), once(extractor, 'loadedmetadata')]);
+    await once(player, 'loadedmetadata');
     if (token !== generationToken) return;
-    if (!Number.isFinite(extractor.duration) || extractor.duration <= 0) throw new Error('動画の長さを取得できませんでした。');
+    if (!Number.isFinite(player.duration) || player.duration <= 0) throw new Error('動画の長さを取得できませんでした。');
     const interval = Number(intervalSelect.value);
     const times = [];
-    for (let time = 0; time < extractor.duration; time += interval) times.push(time);
+    for (let time = 0; time < player.duration; time += interval) times.push(time);
     statusText.textContent = `0 / ${times.length}枚を生成中`;
-    const canvas = document.createElement('canvas');
-    const scale = Math.min(320 / extractor.videoWidth, 240 / extractor.videoHeight, 1);
-    canvas.width = Math.max(1, Math.round(extractor.videoWidth * scale));
-    canvas.height = Math.max(1, Math.round(extractor.videoHeight * scale));
-    const context = canvas.getContext('2d');
 
     for (let index = 0; index < times.length; index += 1) {
       if (token !== generationToken) return;
-      await seekVideo(extractor, Math.min(times[index], Math.max(0, extractor.duration - 0.05)));
+      const result = await window.mediaExplorer.getVideoThumbnail(file.path, times[index]);
       if (token !== generationToken) return;
-      context.drawImage(extractor, 0, 0, canvas.width, canvas.height);
+      if (!result?.ok) throw new Error(result?.error || 'サムネイルを生成できませんでした。');
+
       const card = document.createElement('div');
       card.className = 'thumbnail-card';
       const image = new Image();
       image.alt = `${formatTime(times[index])} のサムネイル`;
-      image.src = canvas.toDataURL('image/jpeg', 0.82);
+      image.src = `data:${result.mime};base64,${result.data}`;
       const timeLabel = document.createElement('div');
       timeLabel.className = 'thumbnail-time';
       timeLabel.textContent = formatTime(times[index]);
