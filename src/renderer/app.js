@@ -398,6 +398,12 @@ async function findTreeNodeForPath(folderPath) {
   return currentNode;
 }
 
+function getUncShareRoot(folderPath) {
+  const normalized = folderPath.trim().replaceAll('/', '\\');
+  const match = normalized.match(/^\\\\([^\\]+)\\([^\\]+)/);
+  return match ? `\\\\${match[1]}\\${match[2]}` : null;
+}
+
 async function navigateFromAddressBar() {
   const requestedPath = currentPath.value.trim();
   const previousPath = getRememberedFolder() || '';
@@ -408,8 +414,22 @@ async function navigateFromAddressBar() {
   }
 
   try {
-    const node = await findTreeNodeForPath(requestedPath);
-    if (!node) throw new Error('登録済みのルート配下にフォルダーが見つかりません。');
+    let node = await findTreeNodeForPath(requestedPath);
+    if (!node) {
+      const uncRoot = getUncShareRoot(requestedPath);
+      if (!uncRoot) throw new Error('登録済みのルート配下にフォルダーが見つかりません。');
+
+      // Verify the requested folder before persisting a new UNC root.
+      await window.mediaExplorer.getMediaFiles(requestedPath);
+      const result = await window.mediaExplorer.addNetworkRoot(uncRoot);
+      if (!result?.ok && result?.error !== 'このUNCパスはすでに登録されています。') {
+        throw new Error(result?.error || 'UNCパスを登録できませんでした。');
+      }
+      await reloadRoots();
+      node = await findTreeNodeForPath(requestedPath);
+    }
+
+    if (!node) throw new Error('フォルダーをツリーで開けませんでした。');
     const opened = await selectFolder(node.dataset.path, node._row);
     if (!opened) throw new Error('フォルダーを開けませんでした。');
     node._row?.scrollIntoView({ block: 'nearest' });
