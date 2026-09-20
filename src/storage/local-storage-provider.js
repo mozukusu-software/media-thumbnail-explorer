@@ -43,6 +43,14 @@ async function directoryHasChildren(directoryPath) {
 }
 
 class LocalStorageProvider {
+  constructor(networkRoots = []) {
+    this.networkRoots = [...networkRoots];
+  }
+
+  setNetworkRoots(networkRoots) {
+    this.networkRoots = [...networkRoots];
+  }
+
   async getRoots() {
     const candidates = Array.from({ length: 26 }, (_, index) => `${String.fromCharCode(65 + index)}:\\`);
     const checks = await Promise.all(candidates.map(async (drive) => {
@@ -53,7 +61,15 @@ class LocalStorageProvider {
         return null;
       }
     }));
-    return checks.filter(Boolean);
+    return [
+      ...checks.filter(Boolean),
+      ...this.networkRoots.map((networkPath) => ({
+        name: networkPath,
+        path: networkPath,
+        hasChildren: true,
+        networkRoot: true
+      }))
+    ];
   }
 
   async listDirectories(parentPath) {

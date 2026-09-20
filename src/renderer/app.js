@@ -11,6 +11,7 @@ const imageViewer = document.querySelector('#imageViewer');
 const imageViewerImage = document.querySelector('#imageViewerImage');
 const imageViewerName = document.querySelector('#imageViewerName');
 const imageViewerClose = document.querySelector('#imageViewerClose');
+const addNetworkRoot = document.querySelector('#addNetworkRoot');
 
 let selectedTreeRow = null;
 let selectedFileRow = null;
@@ -184,6 +185,35 @@ function createTreeNode(item, depth = 0) {
   label.className = 'tree-label';
   label.textContent = item.name;
   row.append(toggle, icon, label);
+  if (item.networkRoot) {
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'network-root-remove';
+    remove.textContent = '×';
+    remove.title = 'UNC登録を解除';
+    remove.setAttribute('aria-label', `${item.path} の登録を解除`);
+    remove.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (!confirm(`${item.path} の登録を解除しますか？\n共有フォルダー内のファイルは削除されません。`)) return;
+      const result = await window.mediaExplorer.removeNetworkRoot(item.path);
+      if (!result?.ok) {
+        alert(result?.error || 'UNC登録を解除できませんでした。');
+        return;
+      }
+      if (selectedTreeRow && node.contains(selectedTreeRow)) {
+        selectedTreeRow = null;
+        currentPath.value = '';
+        currentPath.title = '';
+        fileList.replaceChildren();
+        fileCount.textContent = '0件';
+        fileEmpty.textContent = '左のツリーからフォルダを選択してください';
+        clearPreview();
+        forgetRememberedFolder();
+      }
+      node.remove();
+    });
+    row.append(remove);
+  }
 
   const children = document.createElement('div');
   children.className = 'tree-children';
@@ -275,23 +305,24 @@ async function restoreRememberedFolder() {
   const rememberedPath = getRememberedFolder();
   if (!rememberedPath) return;
 
-  const driveMatch = /^([a-zA-Z]:\\)(.*)$/.exec(rememberedPath);
-  if (!driveMatch) {
-    forgetRememberedFolder();
-    return;
-  }
-
-  const drivePath = driveMatch[1];
-  const parts = driveMatch[2].split('\\').filter(Boolean);
-  const targetPaths = [drivePath, ...buildWindowsFolderPath(drivePath, parts)];
-  let currentNode = Array.from(tree.children).find(
-    (node) => normalizeWindowsPath(node.dataset.path || '') === normalizeWindowsPath(drivePath)
-  );
+  const normalizedRememberedPath = normalizeWindowsPath(rememberedPath);
+  const rootNodes = Array.from(tree.children);
+  const matchingRoots = rootNodes.filter((node) => {
+    const rootPath = normalizeWindowsPath(node.dataset.path || '');
+    return normalizedRememberedPath === rootPath || normalizedRememberedPath.startsWith(`${rootPath}/`);
+  });
+  matchingRoots.sort((a, b) => normalizeWindowsPath(b.dataset.path).length - normalizeWindowsPath(a.dataset.path).length);
+  let currentNode = matchingRoots[0];
 
   if (!currentNode) {
     forgetRememberedFolder();
     return;
   }
+
+  const rootPath = currentNode.dataset.path;
+  const relativePath = rememberedPath.slice(rootPath.length).replace(/^\\+/, '');
+  const parts = relativePath.split('\\').filter(Boolean);
+  const targetPaths = [rootPath, ...buildWindowsFolderPath(rootPath, parts)];
 
   for (let index = 1; index < targetPaths.length; index += 1) {
     const opened = await currentNode._expand?.(true);
@@ -316,30 +347,76 @@ async function restoreRememberedFolder() {
 async function selectFolder(folderPath, row) {
   const thumbnailToken = ++thumbnailLoadToken;
   thumbnailQueue.length = 0;
-  if (selectedTreeRow) selectedTreeRow.classList.remove('selected');
-  selectedTreeRow = row;
-  selectedFileRow = null;
-  row.classList.add('selected');
-  currentPath.textContent = folderPath;
-  currentPath.title = folderPath;
-  rememberFolder(folderPath);
-  fileList.replaceChildren();
-  currentFolderFiles = [];
-  fileEmpty.textContent = '読み込み中…';
-  fileCount.textContent = '…';
-  clearPreview();
   try {
     const files = await window.mediaExplorer.getMediaFiles(folderPath);
-    if (thumbnailToken !== thumbnailLoadToken) return;
+    if (thumbnailToken !== thumbnailLoadToken) return false;
+
+    if (selectedTreeRow && selectedTreeRow !== row) selectedTreeRow.classList.remove('selected');
+    selectedTreeRow = row;
+    row?.classList.add('selected');
+    selectedFileRow = null;
+    currentPath.value = folderPath;
+    currentPath.title = folderPath;
+    rememberFolder(folderPath);
+    fileList.replaceChildren();
     currentFolderFiles = files;
     fileCount.textContent = `${files.length}件`;
     fileEmpty.textContent = files.length ? '' : 'このフォルダに対応する画像・動画はありません';
+    clearPreview();
     files.forEach((file) => fileList.append(createFileRow(file, thumbnailToken)));
+    return true;
   } catch (error) {
-    if (thumbnailToken !== thumbnailLoadToken) return;
-    fileCount.textContent = '0件';
-    fileEmpty.textContent = 'フォルダを読み込めませんでした';
-    showError(fileList, error);
+    if (thumbnailToken === thumbnailLoadToken) console.error('Failed to open folder:', folderPath, error);
+    return false;
+  }
+}
+
+async function findTreeNodeForPath(folderPath) {
+  const normalizedTarget = normalizeWindowsPath(folderPath);
+  const rootNodes = Array.from(tree.children).filter((node) => node.dataset.path);
+  const matchingRoots = rootNodes.filter((node) => {
+    const rootPath = normalizeWindowsPath(node.dataset.path);
+    return normalizedTarget === rootPath || normalizedTarget.startsWith(`${rootPath}/`);
+  });
+  matchingRoots.sort((a, b) => normalizeWindowsPath(b.dataset.path).length - normalizeWindowsPath(a.dataset.path).length);
+  let currentNode = matchingRoots[0];
+  if (!currentNode) return null;
+
+  const rootPath = currentNode.dataset.path;
+  const relativePath = folderPath.slice(rootPath.length).replace(/^\\+/, '');
+  const parts = relativePath.split('\\').filter(Boolean);
+  const targetPaths = buildWindowsFolderPath(rootPath, parts);
+
+  for (const targetPath of targetPaths) {
+    const opened = await currentNode._expand?.(true);
+    if (!opened) return null;
+    currentNode = Array.from(currentNode._children?.children || []).find(
+      (node) => normalizeWindowsPath(node.dataset.path || '') === normalizeWindowsPath(targetPath)
+    );
+    if (!currentNode) return null;
+  }
+  return currentNode;
+}
+
+async function navigateFromAddressBar() {
+  const requestedPath = currentPath.value.trim();
+  const previousPath = getRememberedFolder() || '';
+  if (!requestedPath) {
+    currentPath.value = previousPath;
+    currentPath.title = previousPath;
+    return;
+  }
+
+  try {
+    const node = await findTreeNodeForPath(requestedPath);
+    if (!node) throw new Error('登録済みのルート配下にフォルダーが見つかりません。');
+    const opened = await selectFolder(node.dataset.path, node._row);
+    if (!opened) throw new Error('フォルダーを開けませんでした。');
+    node._row?.scrollIntoView({ block: 'nearest' });
+  } catch (error) {
+    currentPath.value = previousPath;
+    currentPath.title = previousPath;
+    alert(`フォルダーへ移動できませんでした。\n${requestedPath}\n\n${error.message}`);
   }
 }
 
@@ -480,18 +557,52 @@ async function renderVideo(file) {
   }
 }
 
+currentPath.addEventListener('focus', () => currentPath.select());
+currentPath.addEventListener('click', () => currentPath.select());
+currentPath.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    navigateFromAddressBar();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    const previousPath = getRememberedFolder() || '';
+    currentPath.value = previousPath;
+    currentPath.title = previousPath;
+    currentPath.blur();
+  }
+});
+
 intervalSelect.addEventListener('change', () => {
   if (selectedFile?.type === 'video') renderVideo(selectedFile);
 });
 
-async function initialize() {
+async function reloadRoots() {
+  const roots = await window.mediaExplorer.getDrives();
+  tree.replaceChildren();
+  roots.forEach((root) => tree.append(createTreeNode(root)));
+  if (!roots.length) tree.textContent = 'ドライブを取得できませんでした';
+  return roots;
+}
+
+addNetworkRoot.addEventListener('click', async () => {
+  const input = prompt('追加するUNCパスを入力してください。\n例: \\\\server\\share');
+  if (input === null) return;
   try {
-    const drives = await window.mediaExplorer.getDrives();
-    drives.forEach((drive) => tree.append(createTreeNode(drive)));
-    if (!drives.length) {
-      tree.textContent = 'ドライブを取得できませんでした';
+    const result = await window.mediaExplorer.addNetworkRoot(input);
+    if (!result?.ok) {
+      alert(result?.error || 'UNCパスを登録できませんでした。');
       return;
     }
+    tree.append(createTreeNode({ name: result.path, path: result.path, hasChildren: true, networkRoot: true }));
+  } catch (error) {
+    alert(`UNCパスを登録できませんでした。\n${error.message}`);
+  }
+});
+
+async function initialize() {
+  try {
+    const roots = await reloadRoots();
+    if (!roots.length) return;
     await restoreRememberedFolder();
   } catch (error) {
     showError(tree, error);

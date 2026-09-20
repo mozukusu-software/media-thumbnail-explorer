@@ -321,6 +321,63 @@ async function getListThumbnail(filePath, type) {
 
 const DEFAULT_WINDOW_BOUNDS = { width: 1440, height: 900 };
 const WINDOW_STATE_FILE = 'window-state.json';
+const APP_SETTINGS_FILE = 'app-settings.json';
+
+
+function getAppSettingsPath() {
+  return path.join(app.getPath('userData'), APP_SETTINGS_FILE);
+}
+
+function normalizeNetworkRoot(input) {
+  if (typeof input !== 'string') throw new Error('UNCパスを入力してください。');
+  const candidate = input.trim().replaceAll('/', '\\');
+  if (!/^\\\\[^\\]+\\[^\\]+(?:\\.*)?$/.test(candidate)) {
+    throw new Error('\\\\server\\share またはその配下のUNCパスを入力してください。');
+  }
+  return path.win32.normalize(candidate);
+}
+
+async function loadAppSettings() {
+  try {
+    const settings = JSON.parse(await fs.readFile(getAppSettingsPath(), 'utf8'));
+    const networkRoots = Array.isArray(settings?.networkRoots)
+      ? settings.networkRoots.filter((item) => typeof item === 'string')
+      : [];
+    return { networkRoots };
+  } catch {
+    return { networkRoots: [] };
+  }
+}
+
+async function saveAppSettings(settings) {
+  await fs.mkdir(app.getPath('userData'), { recursive: true });
+  await fs.writeFile(getAppSettingsPath(), JSON.stringify(settings, null, 2), 'utf8');
+}
+
+async function addNetworkRoot(input) {
+  const networkRoot = normalizeNetworkRoot(input);
+  const settings = await loadAppSettings();
+  if (settings.networkRoots.some((item) => item.toLowerCase() === networkRoot.toLowerCase())) {
+    return { ok: false, error: 'このUNCパスはすでに登録されています。' };
+  }
+  settings.networkRoots.push(networkRoot);
+  await saveAppSettings(settings);
+  storageProvider.setNetworkRoots(settings.networkRoots);
+  return { ok: true, path: networkRoot };
+}
+
+async function removeNetworkRoot(input) {
+  const networkRoot = normalizeNetworkRoot(input);
+  const settings = await loadAppSettings();
+  const nextRoots = settings.networkRoots.filter((item) => item.toLowerCase() !== networkRoot.toLowerCase());
+  if (nextRoots.length === settings.networkRoots.length) {
+    return { ok: false, error: '登録されたUNCパスが見つかりません。' };
+  }
+  settings.networkRoots = nextRoots;
+  await saveAppSettings(settings);
+  storageProvider.setNetworkRoots(settings.networkRoots);
+  return { ok: true };
+}
 
 function getWindowStatePath() {
   return path.join(app.getPath('userData'), WINDOW_STATE_FILE);
@@ -379,6 +436,7 @@ async function createWindow() {
       sandbox: true
     }
   });
+  window.removeMenu();
 
   let closePending = false;
   window.on('close', (event) => {
@@ -392,7 +450,9 @@ async function createWindow() {
   if (state.isMaximized) window.maximize();
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const settings = await loadAppSettings();
+  storageProvider.setNetworkRoots(settings.networkRoots);
   protocol.handle('media-file', (request) => {
     try {
       const filePath = decodeMediaUrl(request.url);
@@ -415,6 +475,8 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('fs:drives', () => storageProvider.getRoots());
+  ipcMain.handle('settings:add-network-root', (_event, networkPath) => addNetworkRoot(networkPath));
+  ipcMain.handle('settings:remove-network-root', (_event, networkPath) => removeNetworkRoot(networkPath));
   ipcMain.handle('fs:directories', (_event, folderPath) => storageProvider.listDirectories(folderPath));
   ipcMain.handle('fs:media', (_event, folderPath) => listMediaFiles(folderPath));
   ipcMain.handle('shell:open-video', (_event, filePath) => openVideo(filePath));
