@@ -5,6 +5,7 @@ const { pathToFileURL } = require('node:url');
 const sharp = require('sharp');
 const { spawn } = require('node:child_process');
 const { createHash } = require('node:crypto');
+const { LocalStorageProvider } = require('./storage/local-storage-provider');
 
 let ffmpegExecutable = null;
 let ffprobeExecutable = null;
@@ -124,85 +125,11 @@ function decodeMediaUrl(url) {
   return Buffer.from(parsed.pathname.slice(1), 'base64url').toString('utf8');
 }
 
-async function getWindowsDrives() {
-  const candidates = Array.from({ length: 26 }, (_, index) => `${String.fromCharCode(65 + index)}:\\`);
-  const checks = await Promise.all(candidates.map(async (drive) => {
-    try {
-      await fs.access(drive);
-      return { name: drive, path: drive, hasChildren: true };
-    } catch {
-      return null;
-    }
-  }));
-  return checks.filter(Boolean);
-}
-
-const DIRECTORY_PROBE_CONCURRENCY = 8;
-
-async function directoryHasChildren(directoryPath) {
-  try {
-    const handle = await fs.opendir(directoryPath);
-    try {
-      for await (const entry of handle) {
-        if (entry.isDirectory() && !entry.isSymbolicLink()) return true;
-      }
-      return false;
-    } finally {
-      await handle.close().catch(() => {});
-    }
-  } catch {
-    // If the directory cannot be inspected, keep the toggle available so the
-    // user can still attempt to open it and receive the normal error message.
-    return true;
-  }
-}
-
-async function mapWithConcurrency(items, concurrency, mapper) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (true) {
-      const index = nextIndex++;
-      if (index >= items.length) return;
-      results[index] = await mapper(items[index], index);
-    }
-  }
-
-  const workerCount = Math.min(concurrency, items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
-}
-
-async function listDirectories(parentPath) {
-  const entries = (await fs.readdir(parentPath, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-    .sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
-
-  return mapWithConcurrency(entries, DIRECTORY_PROBE_CONCURRENCY, async (entry) => {
-    const directoryPath = path.join(parentPath, entry.name);
-    return {
-      name: entry.name,
-      path: directoryPath,
-      hasChildren: await directoryHasChildren(directoryPath)
-    };
-  });
-}
+const storageProvider = new LocalStorageProvider();
 
 async function listMediaFiles(folderPath) {
-  const entries = await fs.readdir(folderPath, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const extension = path.extname(entry.name).toLowerCase();
-    const type = IMAGE_EXTENSIONS.has(extension) ? 'image' : VIDEO_EXTENSIONS.has(extension) ? 'video' : null;
-    if (!type) continue;
-    const fullPath = path.join(folderPath, entry.name);
-    let size = 0;
-    try { size = (await fs.stat(fullPath)).size; } catch { /* File may have disappeared. */ }
-    files.push({ name: entry.name, path: fullPath, url: encodeMediaUrl(fullPath), type, size });
-  }
-  return files.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
+  const files = await storageProvider.listMediaFiles(folderPath);
+  return files.map((file) => ({ ...file, url: encodeMediaUrl(file.path) }));
 }
 
 async function openVideo(filePath) {
@@ -487,8 +414,8 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('fs:drives', getWindowsDrives);
-  ipcMain.handle('fs:directories', (_event, folderPath) => listDirectories(folderPath));
+  ipcMain.handle('fs:drives', () => storageProvider.getRoots());
+  ipcMain.handle('fs:directories', (_event, folderPath) => storageProvider.listDirectories(folderPath));
   ipcMain.handle('fs:media', (_event, folderPath) => listMediaFiles(folderPath));
   ipcMain.handle('shell:open-video', (_event, filePath) => openVideo(filePath));
   ipcMain.handle('video:thumbnail', (_event, filePath, timeSeconds) => generateVideoThumbnail(filePath, timeSeconds));
