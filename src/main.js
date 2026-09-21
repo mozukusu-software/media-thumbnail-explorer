@@ -129,7 +129,10 @@ const storageProvider = new LocalStorageProvider();
 
 async function listMediaFiles(folderPath) {
   const files = await storageProvider.listMediaFiles(folderPath);
-  return files.map((file) => ({ ...file, url: encodeMediaUrl(file.path) }));
+  return files.map((file) => ({
+    ...file,
+    url: file.type === 'video' ? pathToFileURL(file.path).toString() : encodeMediaUrl(file.path)
+  }));
 }
 
 async function storageResult(targetPath, operation) {
@@ -446,6 +449,19 @@ async function createWindow() {
     }
   });
   window.removeMenu();
+
+  window.webContents.on('before-input-event', (event, input) => {
+    const isDevToolsShortcut =
+      input.type === 'keyDown' &&
+      input.control &&
+      input.shift &&
+      input.key.toLowerCase() === 'i';
+
+    if (!isDevToolsShortcut) return;
+
+    event.preventDefault();
+    window.webContents.toggleDevTools();
+  });
 
   let closePending = false;
   window.on('close', (event) => {
