@@ -104,6 +104,11 @@ async function closeImageViewer() {
 }
 
 imageViewerClose.addEventListener('click', closeImageViewer);
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && !imageViewer.classList.contains('hidden')) {
+    closeImageViewer();
+  }
+});
 document.addEventListener('keydown', (event) => {
   if (imageViewer.classList.contains('hidden')) return;
   if (event.key === 'Escape') {
