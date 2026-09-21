@@ -149,18 +149,8 @@ causes, and the fixes that followed.
 Latest release:
 
 ``` text
-v0.2.2
+v0.3.1
 ```
-
-In development:
-
-``` text
-v0.3.0
-```
-
-v0.3.0 introduces a storage-provider boundary around the existing local
-filesystem browsing logic. The renderer-facing behavior remains unchanged,
-providing the foundation for network-drive support in later v0.3.x releases.
 
 See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
