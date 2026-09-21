@@ -243,7 +243,7 @@ function createTreeNode(item, depth = 0) {
   children.className = 'tree-children';
   node.append(row, children);
 
-  async function expand(forceOpen = false) {
+  async function expand(forceOpen = false, { silent = false } = {}) {
     if (!item.hasChildren) return false;
     if (node.classList.contains('expanded')) {
       if (forceOpen) return true;
@@ -270,7 +270,7 @@ function createTreeNode(item, depth = 0) {
       node.classList.remove('expanded');
       toggle.setAttribute('aria-label', '展開');
       toggle.setAttribute('aria-expanded', 'false');
-      if (!forceOpen) alert(`フォルダーを開けませんでした。\n${error.message}`);
+      if (!forceOpen && !silent) alert(`フォルダーを開けませんでした。\n${error.message}`);
       return false;
     } finally {
       toggle.classList.remove('loading');
@@ -283,8 +283,9 @@ function createTreeNode(item, depth = 0) {
 
   toggle.addEventListener('click', (event) => { event.stopPropagation(); expand(); });
   row.addEventListener('click', () => {
-    if (selectedTreeRow !== row) selectFolder(item.path, row);
-    expand();
+    const selecting = selectedTreeRow !== row;
+    if (selecting) selectFolder(item.path, row);
+    expand(false, { silent: selecting });
   });
   return node;
 }
