@@ -21,6 +21,8 @@ let imageViewerFile = null;
 let generationToken = 0;
 let thumbnailLoadToken = 0;
 let activeThumbnailJobs = 0;
+let videoVolume = 1;
+let videoMuted = false;
 const thumbnailQueue = [];
 const MAX_THUMBNAIL_JOBS = 2;
 const LAST_FOLDER_STORAGE_KEY = 'media-thumbnail-explorer:last-folder';
@@ -525,6 +527,12 @@ async function renderVideo(file) {
   player.className = 'video-player';
   player.controls = true;
   player.preload = 'metadata';
+  player.volume = videoVolume;
+  player.muted = videoMuted;
+  player.addEventListener('volumechange', () => {
+    videoVolume = player.volume;
+    videoMuted = player.muted;
+  });
   player.src = file.url;
   const status = document.createElement('div');
   status.className = 'generation-status';
