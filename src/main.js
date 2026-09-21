@@ -5,7 +5,7 @@ const { pathToFileURL } = require('node:url');
 const sharp = require('sharp');
 const { spawn } = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { LocalStorageProvider } = require('./storage/local-storage-provider');
+const { LocalStorageProvider, classifyStorageError } = require('./storage/local-storage-provider');
 
 let ffmpegExecutable = null;
 let ffprobeExecutable = null;
@@ -130,6 +130,15 @@ const storageProvider = new LocalStorageProvider();
 async function listMediaFiles(folderPath) {
   const files = await storageProvider.listMediaFiles(folderPath);
   return files.map((file) => ({ ...file, url: encodeMediaUrl(file.path) }));
+}
+
+async function storageResult(targetPath, operation) {
+  try {
+    return { ok: true, data: await operation() };
+  } catch (error) {
+    console.error('Storage access failed:', targetPath, error);
+    return { ok: false, error: classifyStorageError(error, targetPath) };
+  }
 }
 
 async function openVideo(filePath) {
@@ -477,8 +486,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('fs:drives', () => storageProvider.getRoots());
   ipcMain.handle('settings:add-network-root', (_event, networkPath) => addNetworkRoot(networkPath));
   ipcMain.handle('settings:remove-network-root', (_event, networkPath) => removeNetworkRoot(networkPath));
-  ipcMain.handle('fs:directories', (_event, folderPath) => storageProvider.listDirectories(folderPath));
-  ipcMain.handle('fs:media', (_event, folderPath) => listMediaFiles(folderPath));
+  ipcMain.handle('fs:directories', (_event, folderPath) =>
+    storageResult(folderPath, () => storageProvider.listDirectories(folderPath)));
+  ipcMain.handle('fs:media', (_event, folderPath) =>
+    storageResult(folderPath, () => listMediaFiles(folderPath)));
   ipcMain.handle('shell:open-video', (_event, filePath) => openVideo(filePath));
   ipcMain.handle('video:thumbnail', (_event, filePath, timeSeconds) => generateVideoThumbnail(filePath, timeSeconds));
   ipcMain.handle('media:list-thumbnail', (_event, filePath, type) => getListThumbnail(filePath, type));
