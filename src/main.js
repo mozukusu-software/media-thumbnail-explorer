@@ -5,6 +5,7 @@ const { pathToFileURL } = require('node:url');
 const sharp = require('sharp');
 const { spawn } = require('node:child_process');
 const { createHash } = require('node:crypto');
+const { LocalStorageProvider } = require('./storage/local-storage-provider');
 
 let ffmpegExecutable = null;
 let ffprobeExecutable = null;
@@ -124,85 +125,11 @@ function decodeMediaUrl(url) {
   return Buffer.from(parsed.pathname.slice(1), 'base64url').toString('utf8');
 }
 
-async function getWindowsDrives() {
-  const candidates = Array.from({ length: 26 }, (_, index) => `${String.fromCharCode(65 + index)}:\\`);
-  const checks = await Promise.all(candidates.map(async (drive) => {
-    try {
-      await fs.access(drive);
-      return { name: drive, path: drive, hasChildren: true };
-    } catch {
-      return null;
-    }
-  }));
-  return checks.filter(Boolean);
-}
-
-const DIRECTORY_PROBE_CONCURRENCY = 8;
-
-async function directoryHasChildren(directoryPath) {
-  try {
-    const handle = await fs.opendir(directoryPath);
-    try {
-      for await (const entry of handle) {
-        if (entry.isDirectory() && !entry.isSymbolicLink()) return true;
-      }
-      return false;
-    } finally {
-      await handle.close().catch(() => {});
-    }
-  } catch {
-    // If the directory cannot be inspected, keep the toggle available so the
-    // user can still attempt to open it and receive the normal error message.
-    return true;
-  }
-}
-
-async function mapWithConcurrency(items, concurrency, mapper) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (true) {
-      const index = nextIndex++;
-      if (index >= items.length) return;
-      results[index] = await mapper(items[index], index);
-    }
-  }
-
-  const workerCount = Math.min(concurrency, items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return results;
-}
-
-async function listDirectories(parentPath) {
-  const entries = (await fs.readdir(parentPath, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-    .sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
-
-  return mapWithConcurrency(entries, DIRECTORY_PROBE_CONCURRENCY, async (entry) => {
-    const directoryPath = path.join(parentPath, entry.name);
-    return {
-      name: entry.name,
-      path: directoryPath,
-      hasChildren: await directoryHasChildren(directoryPath)
-    };
-  });
-}
+const storageProvider = new LocalStorageProvider();
 
 async function listMediaFiles(folderPath) {
-  const entries = await fs.readdir(folderPath, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const extension = path.extname(entry.name).toLowerCase();
-    const type = IMAGE_EXTENSIONS.has(extension) ? 'image' : VIDEO_EXTENSIONS.has(extension) ? 'video' : null;
-    if (!type) continue;
-    const fullPath = path.join(folderPath, entry.name);
-    let size = 0;
-    try { size = (await fs.stat(fullPath)).size; } catch { /* File may have disappeared. */ }
-    files.push({ name: entry.name, path: fullPath, url: encodeMediaUrl(fullPath), type, size });
-  }
-  return files.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
+  const files = await storageProvider.listMediaFiles(folderPath);
+  return files.map((file) => ({ ...file, url: encodeMediaUrl(file.path) }));
 }
 
 async function openVideo(filePath) {
@@ -394,6 +321,63 @@ async function getListThumbnail(filePath, type) {
 
 const DEFAULT_WINDOW_BOUNDS = { width: 1440, height: 900 };
 const WINDOW_STATE_FILE = 'window-state.json';
+const APP_SETTINGS_FILE = 'app-settings.json';
+
+
+function getAppSettingsPath() {
+  return path.join(app.getPath('userData'), APP_SETTINGS_FILE);
+}
+
+function normalizeNetworkRoot(input) {
+  if (typeof input !== 'string') throw new Error('UNCパスを入力してください。');
+  const candidate = input.trim().replaceAll('/', '\\');
+  if (!/^\\\\[^\\]+\\[^\\]+(?:\\.*)?$/.test(candidate)) {
+    throw new Error('\\\\server\\share またはその配下のUNCパスを入力してください。');
+  }
+  return path.win32.normalize(candidate);
+}
+
+async function loadAppSettings() {
+  try {
+    const settings = JSON.parse(await fs.readFile(getAppSettingsPath(), 'utf8'));
+    const networkRoots = Array.isArray(settings?.networkRoots)
+      ? settings.networkRoots.filter((item) => typeof item === 'string')
+      : [];
+    return { networkRoots };
+  } catch {
+    return { networkRoots: [] };
+  }
+}
+
+async function saveAppSettings(settings) {
+  await fs.mkdir(app.getPath('userData'), { recursive: true });
+  await fs.writeFile(getAppSettingsPath(), JSON.stringify(settings, null, 2), 'utf8');
+}
+
+async function addNetworkRoot(input) {
+  const networkRoot = normalizeNetworkRoot(input);
+  const settings = await loadAppSettings();
+  if (settings.networkRoots.some((item) => item.toLowerCase() === networkRoot.toLowerCase())) {
+    return { ok: false, error: 'このUNCパスはすでに登録されています。' };
+  }
+  settings.networkRoots.push(networkRoot);
+  await saveAppSettings(settings);
+  storageProvider.setNetworkRoots(settings.networkRoots);
+  return { ok: true, path: networkRoot };
+}
+
+async function removeNetworkRoot(input) {
+  const networkRoot = normalizeNetworkRoot(input);
+  const settings = await loadAppSettings();
+  const nextRoots = settings.networkRoots.filter((item) => item.toLowerCase() !== networkRoot.toLowerCase());
+  if (nextRoots.length === settings.networkRoots.length) {
+    return { ok: false, error: '登録されたUNCパスが見つかりません。' };
+  }
+  settings.networkRoots = nextRoots;
+  await saveAppSettings(settings);
+  storageProvider.setNetworkRoots(settings.networkRoots);
+  return { ok: true };
+}
 
 function getWindowStatePath() {
   return path.join(app.getPath('userData'), WINDOW_STATE_FILE);
@@ -452,6 +436,7 @@ async function createWindow() {
       sandbox: true
     }
   });
+  window.removeMenu();
 
   let closePending = false;
   window.on('close', (event) => {
@@ -465,7 +450,9 @@ async function createWindow() {
   if (state.isMaximized) window.maximize();
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const settings = await loadAppSettings();
+  storageProvider.setNetworkRoots(settings.networkRoots);
   protocol.handle('media-file', (request) => {
     try {
       const filePath = decodeMediaUrl(request.url);
@@ -487,8 +474,10 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('fs:drives', getWindowsDrives);
-  ipcMain.handle('fs:directories', (_event, folderPath) => listDirectories(folderPath));
+  ipcMain.handle('fs:drives', () => storageProvider.getRoots());
+  ipcMain.handle('settings:add-network-root', (_event, networkPath) => addNetworkRoot(networkPath));
+  ipcMain.handle('settings:remove-network-root', (_event, networkPath) => removeNetworkRoot(networkPath));
+  ipcMain.handle('fs:directories', (_event, folderPath) => storageProvider.listDirectories(folderPath));
   ipcMain.handle('fs:media', (_event, folderPath) => listMediaFiles(folderPath));
   ipcMain.handle('shell:open-video', (_event, filePath) => openVideo(filePath));
   ipcMain.handle('video:thumbnail', (_event, filePath, timeSeconds) => generateVideoThumbnail(filePath, timeSeconds));

@@ -10,12 +10,12 @@
 <body>
   <header class="app-header">
     <div class="brand"><span class="brand-mark">M</span><span>Media Thumbnail Explorer</span></div>
-    <div id="currentPath" class="current-path">フォルダを選択してください</div>
+    <input id="currentPath" class="current-path" type="text" value="" placeholder="フォルダを選択してください" aria-label="現在のフォルダーパス" spellcheck="false">
   </header>
 
   <main class="workspace">
     <aside class="folder-pane">
-      <div class="pane-title">フォルダー</div>
+      <div class="pane-title"><span>フォルダー</span><button id="addNetworkRoot" class="pane-action" type="button" title="UNCパスを追加" aria-label="UNCパスを追加">＋ UNC</button></div>
       <div id="folderTree" class="folder-tree" role="tree" aria-label="フォルダーツリー"></div>
     </aside>
 

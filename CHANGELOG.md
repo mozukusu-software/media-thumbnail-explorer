@@ -2,6 +2,50 @@
 
 ---
 
+# v0.3
+
+## v0.3.1 - UNC Path Registration
+
+### Added
+
+- Added registration and direct navigation for Windows UNC paths
+- Automatically registers a UNC share root when opened from the address bar
+- Persists registered UNC share roots across application restarts
+
+### Changed
+
+- Preserved video preview volume and mute state while switching between videos during the same application session
+
+### Verification
+
+- Verified UNC registration, direct navigation, and persistence across restart
+- Verified browsing images and videos from registered UNC shares
+- Verified video volume and mute state are preserved when switching media
+
+---
+
+## v0.3.0 - Storage Provider Foundation
+
+### Added
+
+- Added a local storage provider abstraction for drive, directory, and media-file enumeration
+- Added a storage boundary that future network-drive support can build on without changing the renderer-facing IPC contract
+
+### Changed
+
+- Moved existing local filesystem enumeration out of the Electron main-process orchestration code and into `LocalStorageProvider`
+- Preserved the existing renderer, preload, IPC channel names, media URLs, and local browsing behavior
+
+### Verification
+
+- Verified local drive enumeration and multi-level folder-tree expansion
+- Verified folder expand controls continue to reflect child-directory availability
+- Verified image and video thumbnails
+- Verified image preview, fullscreen viewing, keyboard navigation, and video opening
+- Verified restoration of the last opened folder after restart while leaving the individual preview unrestored as designed
+
+---
+
 # v0.2
 
 ## v0.2.2 - Usability and Documentation

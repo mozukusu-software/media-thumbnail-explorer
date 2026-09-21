@@ -149,19 +149,18 @@ causes, and the fixes that followed.
 Latest release:
 
 ``` text
-v0.2.1
+v0.2.2
 ```
 
 In development:
 
 ``` text
-v0.2.2
+v0.3.0
 ```
 
-v0.2.2 includes image-viewer keyboard navigation, window-state
-persistence, improved application shutdown, a custom application icon,
-restoration of the last opened folder, and project documentation
-improvements.
+v0.3.0 introduces a storage-provider boundary around the existing local
+filesystem browsing logic. The renderer-facing behavior remains unchanged,
+providing the foundation for network-drive support in later v0.3.x releases.
 
 See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
