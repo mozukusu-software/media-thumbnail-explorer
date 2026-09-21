@@ -4,6 +4,26 @@
 
 # v0.3
 
+## v0.3.1 - UNC Path Registration
+
+### Added
+
+- Added registration and direct navigation for Windows UNC paths
+- Automatically registers a UNC share root when opened from the address bar
+- Persists registered UNC share roots across application restarts
+
+### Changed
+
+- Preserved video preview volume and mute state while switching between videos during the same application session
+
+### Verification
+
+- Verified UNC registration, direct navigation, and persistence across restart
+- Verified browsing images and videos from registered UNC shares
+- Verified video volume and mute state are preserved when switching media
+
+---
+
 ## v0.3.0 - Storage Provider Foundation
 
 ### Added
