@@ -447,6 +447,19 @@ async function createWindow() {
   });
   window.removeMenu();
 
+  window.webContents.on('before-input-event', (event, input) => {
+    const isDevToolsShortcut =
+      input.type === 'keyDown' &&
+      input.control &&
+      input.shift &&
+      input.key.toLowerCase() === 'i';
+
+    if (!isDevToolsShortcut) return;
+
+    event.preventDefault();
+    window.webContents.toggleDevTools();
+  });
+
   let closePending = false;
   window.on('close', (event) => {
     if (closePending) return;
