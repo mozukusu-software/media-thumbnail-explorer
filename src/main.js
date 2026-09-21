@@ -129,7 +129,10 @@ const storageProvider = new LocalStorageProvider();
 
 async function listMediaFiles(folderPath) {
   const files = await storageProvider.listMediaFiles(folderPath);
-  return files.map((file) => ({ ...file, url: encodeMediaUrl(file.path) }));
+  return files.map((file) => ({
+    ...file,
+    url: file.type === 'video' ? pathToFileURL(file.path).toString() : encodeMediaUrl(file.path)
+  }));
 }
 
 async function storageResult(targetPath, operation) {
