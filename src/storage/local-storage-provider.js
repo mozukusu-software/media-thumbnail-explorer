@@ -9,6 +9,28 @@ const IMAGE_EXTENSIONS = new Set([
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.m4v', '.webm', '.mov', '.avi', '.mkv', '.wmv', '.mpeg', '.mpg']);
 const DIRECTORY_PROBE_CONCURRENCY = 8;
 
+const ACCESS_DENIED_CODES = new Set(['EACCES', 'EPERM']);
+const UNAVAILABLE_CODES = new Set([
+  'ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH',
+  'ENETDOWN', 'ENETRESET', 'ENETUNREACH', 'ENOTCONN', 'EPIPE'
+]);
+
+function classifyStorageError(error, targetPath) {
+  const code = typeof error?.code === 'string' ? error.code : null;
+  let type = 'unknown';
+
+  if (ACCESS_DENIED_CODES.has(code)) type = 'access-denied';
+  else if (code === 'ENOENT' || code === 'ENOTDIR') type = 'not-found';
+  else if (code === 'ETIMEDOUT') type = 'timeout';
+  else if (UNAVAILABLE_CODES.has(code)) type = 'unavailable';
+
+  return {
+    type,
+    code,
+    path: typeof targetPath === 'string' ? targetPath : null
+  };
+}
+
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -104,4 +126,4 @@ class LocalStorageProvider {
   }
 }
 
-module.exports = { LocalStorageProvider };
+module.exports = { LocalStorageProvider, classifyStorageError };

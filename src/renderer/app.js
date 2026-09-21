@@ -50,6 +50,28 @@ function showError(target, error) {
   target.append(message);
 }
 
+function getStorageErrorMessage(error) {
+  switch (error?.type) {
+    case 'access-denied':
+      return 'このフォルダーへのアクセスが拒否されました。共有またはフォルダーのアクセス権を確認してください。';
+    case 'not-found':
+      return 'フォルダーが見つかりません。移動・削除されたか、共有先が現在利用できない可能性があります。';
+    case 'unavailable':
+      return 'ネットワークフォルダーに接続できません。接続先PC、ネットワーク、共有設定を確認してください。';
+    case 'timeout':
+      return 'ネットワークフォルダーから応答がありませんでした。接続先PCとネットワークを確認してください。';
+    default:
+      return 'フォルダーを開けませんでした。';
+  }
+}
+
+function storageDataOrThrow(result) {
+  if (result?.ok) return result.data;
+  const error = new Error(getStorageErrorMessage(result?.error));
+  error.storageError = result?.error || null;
+  throw error;
+}
+
 function showImageInViewer(file) {
   imageViewerFile = file;
   imageViewerImage.src = file.url;
@@ -221,7 +243,7 @@ function createTreeNode(item, depth = 0) {
   children.className = 'tree-children';
   node.append(row, children);
 
-  async function expand(forceOpen = false) {
+  async function expand(forceOpen = false, { silent = false } = {}) {
     if (!item.hasChildren) return false;
     if (node.classList.contains('expanded')) {
       if (forceOpen) return true;
@@ -236,7 +258,7 @@ function createTreeNode(item, depth = 0) {
     if (node.dataset.loaded === 'true') return true;
     toggle.classList.add('loading');
     try {
-      const directories = await window.mediaExplorer.getDirectories(item.path);
+      const directories = storageDataOrThrow(await window.mediaExplorer.getDirectories(item.path));
       directories.forEach((directory) => children.append(createTreeNode(directory, depth + 1)));
       node.dataset.loaded = 'true';
       if (!directories.length) {
@@ -248,7 +270,7 @@ function createTreeNode(item, depth = 0) {
       node.classList.remove('expanded');
       toggle.setAttribute('aria-label', '展開');
       toggle.setAttribute('aria-expanded', 'false');
-      if (!forceOpen) alert(`フォルダーを開けませんでした。\n${error.message}`);
+      if (!forceOpen && !silent) alert(`フォルダーを開けませんでした。\n${error.message}`);
       return false;
     } finally {
       toggle.classList.remove('loading');
@@ -261,8 +283,9 @@ function createTreeNode(item, depth = 0) {
 
   toggle.addEventListener('click', (event) => { event.stopPropagation(); expand(); });
   row.addEventListener('click', () => {
-    if (selectedTreeRow !== row) selectFolder(item.path, row);
-    expand();
+    const selecting = selectedTreeRow !== row;
+    if (selecting) selectFolder(item.path, row);
+    expand(false, { silent: selecting });
   });
   return node;
 }
@@ -329,7 +352,6 @@ async function restoreRememberedFolder() {
   for (let index = 1; index < targetPaths.length; index += 1) {
     const opened = await currentNode._expand?.(true);
     if (!opened) {
-      forgetRememberedFolder();
       return;
     }
     const targetPath = targetPaths[index];
@@ -337,20 +359,19 @@ async function restoreRememberedFolder() {
       (node) => normalizeWindowsPath(node.dataset.path || '') === normalizeWindowsPath(targetPath)
     );
     if (!currentNode) {
-      forgetRememberedFolder();
       return;
     }
   }
 
-  await selectFolder(rememberedPath, currentNode._row);
+  await selectFolder(rememberedPath, currentNode._row, { silent: true });
   currentNode._row?.scrollIntoView({ block: 'nearest' });
 }
 
-async function selectFolder(folderPath, row) {
+async function selectFolder(folderPath, row, { silent = false } = {}) {
   const thumbnailToken = ++thumbnailLoadToken;
   thumbnailQueue.length = 0;
   try {
-    const files = await window.mediaExplorer.getMediaFiles(folderPath);
+    const files = storageDataOrThrow(await window.mediaExplorer.getMediaFiles(folderPath));
     if (thumbnailToken !== thumbnailLoadToken) return false;
 
     if (selectedTreeRow && selectedTreeRow !== row) selectedTreeRow.classList.remove('selected');
@@ -368,7 +389,10 @@ async function selectFolder(folderPath, row) {
     files.forEach((file) => fileList.append(createFileRow(file, thumbnailToken)));
     return true;
   } catch (error) {
-    if (thumbnailToken === thumbnailLoadToken) console.error('Failed to open folder:', folderPath, error);
+    if (thumbnailToken === thumbnailLoadToken) {
+      console.error('Failed to open folder:', folderPath, error);
+      if (!silent) alert(`フォルダーを開けませんでした。\n${folderPath}\n\n${error.message}`);
+    }
     return false;
   }
 }
@@ -422,7 +446,7 @@ async function navigateFromAddressBar() {
       if (!uncRoot) throw new Error('登録済みのルート配下にフォルダーが見つかりません。');
 
       // Verify the requested folder before persisting a new UNC root.
-      await window.mediaExplorer.getMediaFiles(requestedPath);
+      storageDataOrThrow(await window.mediaExplorer.getMediaFiles(requestedPath));
       const result = await window.mediaExplorer.addNetworkRoot(uncRoot);
       if (!result?.ok && result?.error !== 'このUNCパスはすでに登録されています。') {
         throw new Error(result?.error || 'UNCパスを登録できませんでした。');
