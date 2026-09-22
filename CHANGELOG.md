@@ -4,6 +4,20 @@
 
 # v0.3
 
+## v0.3.4 - Video Audio Preference Persistence
+
+### Changed
+
+- Persisted video preview volume across application restarts
+- Persisted video preview mute state across application restarts
+
+### Verification
+
+- Verified volume changes persist across media switches
+- Verified volume and mute state are restored after restarting the application
+
+---
+
 ## v0.3.2 - Network Resilience and Video Seeking
 
 ### Added
