@@ -1,15 +1,20 @@
 const { app, BrowserWindow, ipcMain, protocol, net, shell } = require('electron');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const sharp = require('sharp');
 const { spawn } = require('node:child_process');
-const { createHash } = require('node:crypto');
+const { createHash, randomBytes } = require('node:crypto');
 const { LocalStorageProvider, classifyStorageError } = require('./storage/local-storage-provider');
 
 let ffmpegExecutable = null;
 let ffprobeExecutable = null;
 const activeChildProcesses = new Set();
+let uncMediaServer = null;
+let uncMediaServerPort = null;
+const uncMediaServerToken = randomBytes(24).toString('hex');
 
 function getFfmpegExecutable() {
   if (ffmpegExecutable) return ffmpegExecutable;
@@ -19,13 +24,8 @@ function getFfmpegExecutable() {
     return ffmpegExecutable;
   }
 
-  try {
-    ffmpegExecutable = require('ffmpeg-static');
-    return ffmpegExecutable;
-  } catch {
-    ffmpegExecutable = 'ffmpeg';
-    return ffmpegExecutable;
-  }
+  ffmpegExecutable = 'ffmpeg';
+  return ffmpegExecutable;
 }
 
 function getFfprobeExecutable() {
@@ -36,13 +36,8 @@ function getFfprobeExecutable() {
     return ffprobeExecutable;
   }
 
-  try {
-    ffprobeExecutable = require('@derhuerst/ffprobe-static');
-    return ffprobeExecutable;
-  } catch {
-    ffprobeExecutable = 'ffprobe';
-    return ffprobeExecutable;
-  }
+  ffprobeExecutable = 'ffprobe';
+  return ffprobeExecutable;
 }
 
 function runProcess(executable, args, maxOutputBytes = 10 * 1024 * 1024) {
@@ -106,6 +101,11 @@ const IMAGE_EXTENSIONS = new Set([
   '.tif', '.tiff', '.heic', '.heif', '.jxl'
 ]);
 const TRANSCODE_IMAGE_EXTENSIONS = new Set(['.tif', '.tiff', '.heic', '.heif', '.jxl']);
+const IMAGE_CONTENT_TYPES = new Map([
+  ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.jfif', 'image/jpeg'], ['.pjpeg', 'image/jpeg'], ['.pjp', 'image/jpeg'],
+  ['.png', 'image/png'], ['.apng', 'image/apng'], ['.gif', 'image/gif'], ['.bmp', 'image/bmp'],
+  ['.webp', 'image/webp'], ['.avif', 'image/avif'], ['.svg', 'image/svg+xml'], ['.ico', 'image/x-icon']
+]);
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.m4v', '.webm', '.mov', '.avi', '.mkv', '.wmv', '.mpeg', '.mpg']);
 
 protocol.registerSchemesAsPrivileged([
@@ -125,13 +125,143 @@ function decodeMediaUrl(url) {
   return Buffer.from(parsed.pathname.slice(1), 'base64url').toString('utf8');
 }
 
+function isUncPath(filePath) {
+  return typeof filePath === 'string' && /^\\\\[^\\]+\\[^\\]+/.test(filePath);
+}
+
+function encodeUncVideoUrl(filePath) {
+  if (!uncMediaServerPort) throw new Error('UNC media server is not ready');
+  const encodedPath = Buffer.from(filePath, 'utf8').toString('base64url');
+  return `http://127.0.0.1:${uncMediaServerPort}/${uncMediaServerToken}/${encodedPath}`;
+}
+
+function parseSingleByteRange(rangeHeader, size) {
+  if (!rangeHeader) return { start: 0, end: size - 1, partial: false };
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
+  if (!match || (match[1] === '' && match[2] === '')) return null;
+
+  let start;
+  let end;
+  if (match[1] === '') {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null;
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === '' ? size - 1 : Number(match[2]);
+  }
+
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size || end < start) {
+    return null;
+  }
+  return { start, end: Math.min(end, size - 1), partial: true };
+}
+
+async function isRegisteredNetworkMediaPath(filePath) {
+  if (!isUncPath(filePath)) return false;
+  const normalized = path.win32.normalize(filePath).toLowerCase();
+  const settings = await loadAppSettings();
+  return settings.networkRoots.some((root) => {
+    const normalizedRoot = path.win32.normalize(root).replace(/\\+$/, '').toLowerCase();
+    return normalized === normalizedRoot || normalized.startsWith(`${normalizedRoot}\\`);
+  });
+}
+
+function startUncMediaServer() {
+  if (uncMediaServer) return Promise.resolve();
+
+  uncMediaServer = http.createServer(async (request, response) => {
+    try {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        response.writeHead(405, { Allow: 'GET, HEAD' });
+        response.end();
+        return;
+      }
+
+      const requestUrl = new URL(request.url, 'http://127.0.0.1');
+      const parts = requestUrl.pathname.split('/').filter(Boolean);
+      if (parts.length !== 2 || parts[0] !== uncMediaServerToken) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+
+      const filePath = Buffer.from(parts[1], 'base64url').toString('utf8');
+      const extension = path.extname(filePath).toLowerCase();
+      if (!VIDEO_EXTENSIONS.has(extension) || !(await isRegisteredNetworkMediaPath(filePath))) {
+        response.writeHead(403);
+        response.end();
+        return;
+      }
+
+      const stat = await fs.stat(filePath);
+      if (!stat.isFile() || stat.size <= 0) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+
+      const range = parseSingleByteRange(request.headers.range, stat.size);
+      if (!range) {
+        response.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+        response.end();
+        return;
+      }
+
+      const contentLength = range.end - range.start + 1;
+      const headers = {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': contentLength,
+        'Content-Type': 'video/mp4'
+      };
+      if (range.partial) headers['Content-Range'] = `bytes ${range.start}-${range.end}/${stat.size}`;
+
+      response.writeHead(range.partial ? 206 : 200, headers);
+      if (request.method === 'HEAD') {
+        response.end();
+        return;
+      }
+
+      const stream = fsSync.createReadStream(filePath, { start: range.start, end: range.end });
+      stream.on('error', () => {
+        if (!response.headersSent) response.writeHead(500);
+        response.destroy();
+      });
+      stream.pipe(response);
+    } catch {
+      if (!response.headersSent) response.writeHead(404);
+      response.end();
+    }
+  });
+
+  return new Promise((resolve, reject) => {
+    uncMediaServer.once('error', reject);
+    uncMediaServer.listen(0, '127.0.0.1', () => {
+      uncMediaServer.off('error', reject);
+      const address = uncMediaServer.address();
+      uncMediaServerPort = typeof address === 'object' && address ? address.port : null;
+      resolve();
+    });
+  });
+}
+
+function stopUncMediaServer() {
+  if (!uncMediaServer) return;
+  uncMediaServer.close();
+  uncMediaServer = null;
+  uncMediaServerPort = null;
+}
+
 const storageProvider = new LocalStorageProvider();
 
 async function listMediaFiles(folderPath) {
   const files = await storageProvider.listMediaFiles(folderPath);
   return files.map((file) => ({
     ...file,
-    url: file.type === 'video' ? pathToFileURL(file.path).toString() : encodeMediaUrl(file.path)
+    url: file.type === 'video'
+      ? (isUncPath(file.path) ? encodeUncVideoUrl(file.path) : pathToFileURL(file.path).toString())
+      : encodeMediaUrl(file.path)
   }));
 }
 
@@ -182,7 +312,7 @@ async function extractVideoFrame(filePath, timeSeconds, width = 320, height = 24
     result = await runProcess(getFfmpegExecutable(), args);
   } catch (error) {
     if (error.code === 'ENOENT') {
-      throw new Error('FFmpegが見つかりません。ffmpeg-staticをインストールするか、FFMPEG_PATHを設定してください。');
+      throw new Error('FFmpegが見つかりません。FFmpegをインストールしてPATHに追加するか、FFMPEG_PATHを設定してください。');
     }
     throw error;
   }
@@ -228,7 +358,7 @@ async function getVideoDuration(filePath) {
     result = await runProcess(getFfprobeExecutable(), args, 1024 * 1024);
   } catch (error) {
     if (error.code === 'ENOENT') {
-      throw new Error('FFprobeが見つかりません。@derhuerst/ffprobe-staticをインストールするか、FFPROBE_PATHを設定してください。');
+      throw new Error('FFprobeが見つかりません。FFmpegをインストールしてPATHに追加するか、FFPROBE_PATHを設定してください。');
     }
     throw error;
   }
@@ -478,6 +608,7 @@ async function createWindow() {
 app.whenReady().then(async () => {
   const settings = await loadAppSettings();
   storageProvider.setNetworkRoots(settings.networkRoots);
+  await startUncMediaServer();
   protocol.handle('media-file', (request) => {
     try {
       const filePath = decodeMediaUrl(request.url);
@@ -488,12 +619,14 @@ app.whenReady().then(async () => {
           .then((output) => new Response(output, { headers: { 'Content-Type': 'image/png' } }))
           .catch((error) => new Response(`Image conversion failed: ${error.message}`, { status: 415 }));
       }
-      // Preserve media request headers (especially Range) so Chromium can seek
-      // to arbitrary positions in local video files through the custom protocol.
-      return net.fetch(pathToFileURL(filePath).toString(), {
-        method: request.method,
-        headers: request.headers
-      });
+      if (!IMAGE_EXTENSIONS.has(extension)) {
+        return new Response('Unsupported media type', { status: 415 });
+      }
+      return fs.readFile(filePath)
+        .then((output) => new Response(output, {
+          headers: { 'Content-Type': IMAGE_CONTENT_TYPES.get(extension) || 'application/octet-stream' }
+        }))
+        .catch((error) => new Response(`Image read failed: ${error.message}`, { status: 404 }));
     } catch {
       return new Response('Bad media path', { status: 400 });
     }
@@ -516,7 +649,10 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on('before-quit', terminateChildProcesses);
+app.on('before-quit', () => {
+  stopUncMediaServer();
+  terminateChildProcesses();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

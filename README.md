@@ -53,13 +53,14 @@ tree, media list, and preview in a single interface.
 -   npm
 -   An environment capable of running Electron
 
-FFmpeg and FFprobe are used to generate video thumbnails.
+FFmpeg and FFprobe are optional external requirements for video-thumbnail generation.
+They are not bundled with Media Thumbnail Explorer. The application remains usable
+without them, but video thumbnails cannot be generated.
 
 The application resolves the executables in the following order:
 
 1.  `FFMPEG_PATH` / `FFPROBE_PATH` environment variables
-2.  FFmpeg / FFprobe provided by npm dependencies
-3.  `ffmpeg` / `ffprobe` available on `PATH`
+2.  `ffmpeg` / `ffprobe` available on `PATH`
 
 ------------------------------------------------------------------------
 
@@ -78,6 +79,19 @@ npm install
 ``` bash
 npm start
 ```
+
+Official releases are source-only. Prebuilt executables and NSIS installers are not
+distributed by the project.
+
+Developers can create a local Windows package with:
+
+``` bash
+npm run dist
+```
+
+Locally built packages are not official project distributions. Anyone redistributing
+a generated package is responsible for reviewing and complying with the licenses of
+the dependencies and native libraries included in that package.
 
 ------------------------------------------------------------------------
 
@@ -118,7 +132,8 @@ Generated video thumbnails are cached in a temporary directory.
 ``` text
 media-thumbnail-explorer/
 ├─ assets/
-│  └─ icon.png
+│  ├─ icon.png
+│  └─ icon.ico
 ├─ doc/
 │  └─ 0.x/
 │     └─ 0.x.x/
@@ -152,6 +167,15 @@ Latest release:
 v0.3.4
 ```
 
+In development:
+
+``` text
+v0.4.0
+```
+
+v0.4.0 removes bundled FFmpeg / FFprobe binaries, updates Electron and sharp,
+and changes the official release policy to source-only distribution.
+
 See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ------------------------------------------------------------------------
@@ -170,5 +194,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ## License
 
-The license is currently being prepared. Check the license document
-included in the repository before public redistribution.
+Media Thumbnail Explorer is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+
+Third-party dependencies remain subject to their own licenses. The project does not
+distribute prebuilt application binaries; users install dependencies locally with
+`npm install`. Developers who build or redistribute packaged binaries must review the
+licenses and redistribution requirements of the dependencies included in those binaries.

@@ -2,6 +2,36 @@
 
 ---
 
+# v0.4
+
+## v0.4.0 - External FFmpeg and Release Preparation
+
+_In Development_
+
+### Changed
+
+- Removed bundled FFmpeg / FFprobe npm dependencies
+- Uses `FFMPEG_PATH` / `FFPROBE_PATH` when configured, otherwise resolves `ffmpeg` / `ffprobe` from `PATH`
+- Keeps the application usable when FFmpeg / FFprobe are unavailable; video-thumbnail generation is disabled in that case
+- Updated Electron to 44.4.3 and sharp to 0.35.4
+- Changed official releases to source-only distribution; prebuilt executables and NSIS installers are not distributed by the project
+- Retained `npm run dist` for developers who want to create local Windows packages
+
+### Fixed
+
+- Included application icon assets in packaged builds and configured the Windows package icon explicitly
+
+### Verification
+
+- Verified development startup with `npm start` without FFmpeg / FFprobe installed
+- Verified normal image browsing and video playback without FFmpeg / FFprobe installed
+- Verified graceful failure of video-thumbnail generation when FFmpeg / FFprobe are unavailable
+- Verified `npm run dist` and the unpacked Windows application with Electron 44.4.3 and sharp 0.35.4
+- Verified the custom application icon in the packaged application
+- Verified `npm audit` reports 0 vulnerabilities after dependency updates
+
+---
+
 # v0.3
 
 ## v0.3.4 - Video Audio Preference Persistence

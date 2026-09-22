@@ -77,6 +77,18 @@ button, select, input { font: inherit; }
 .thumbnail-card img { display: block; width: 100%; max-width: 320px; aspect-ratio: 4 / 3; object-fit: contain; background: #05070b; }
 .thumbnail-time { padding: 7px 9px; color: #b8c4d7; font-variant-numeric: tabular-nums; }
 .error { padding: 16px; color: #ff9b9b; background: rgba(255, 85, 85, .08); border: 1px solid rgba(255, 85, 85, .2); border-radius: 8px; }
+.network-dialog { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, .62); }
+.network-dialog-card { width: min(520px, 100%); padding: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 60px rgba(0,0,0,.45); }
+.network-dialog-title { margin-bottom: 16px; color: var(--text); font-size: 16px; font-weight: 700; }
+.network-dialog-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.network-dialog-input { width: 100%; padding: 9px 11px; color: var(--text); background: #0b1018; border: 1px solid var(--border); border-radius: 7px; outline: none; }
+.network-dialog-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.network-dialog-error { margin-top: 10px; color: #ff9b9b; font-size: 12px; }
+.network-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.network-dialog-actions button { min-width: 84px; padding: 7px 12px; color: var(--text); background: #202a3a; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.network-dialog-actions button:hover { background: #29364b; }
+.network-dialog-actions button:disabled { opacity: .55; cursor: default; }
+
 .image-viewer { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 54px 28px 42px; background: rgba(0, 0, 0, .96); }
 .image-viewer img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
 .image-viewer-close { position: fixed; top: 14px; right: 18px; z-index: 1001; width: 42px; height: 42px; padding: 0 0 4px; color: white; background: rgba(35, 42, 54, .86); border: 1px solid rgba(255,255,255,.25); border-radius: 50%; font-size: 32px; line-height: 36px; cursor: pointer; }

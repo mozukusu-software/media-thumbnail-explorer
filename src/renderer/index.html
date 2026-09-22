@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' media-file: data:; media-src 'self' media-file:; style-src 'self'; script-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' media-file: data:; media-src 'self' media-file: http://127.0.0.1:*; style-src 'self'; script-src 'self'">
   <title>Media Thumbnail Explorer</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -48,6 +48,18 @@
       </div>
     </section>
   </main>
+  <div id="networkRootDialog" class="network-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="networkRootDialogTitle">
+    <div class="network-dialog-card">
+      <div id="networkRootDialogTitle" class="network-dialog-title">UNCパスを追加</div>
+      <label class="network-dialog-label" for="networkRootInput">UNCパス</label>
+      <input id="networkRootInput" class="network-dialog-input" type="text" placeholder="\\\\server\\share" spellcheck="false">
+      <div id="networkRootError" class="network-dialog-error hidden"></div>
+      <div class="network-dialog-actions">
+        <button id="networkRootCancel" type="button">キャンセル</button>
+        <button id="networkRootSubmit" type="button">追加</button>
+      </div>
+    </div>
+  </div>
   <div id="imageViewer" class="image-viewer hidden" role="dialog" aria-modal="true" aria-label="全画面画像ビューア">
     <button id="imageViewerClose" class="image-viewer-close" type="button" aria-label="閉じる">×</button>
     <img id="imageViewerImage" alt="">
