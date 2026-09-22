@@ -4,6 +4,27 @@
 
 # v0.3
 
+## v0.3.2 - Network Resilience and Video Seeking
+
+### Added
+
+- Added a DevTools keyboard shortcut for development and troubleshooting
+
+### Fixed
+
+- Improved error handling for unavailable or disconnected UNC shares
+- Prevented duplicate error dialogs for unavailable network shares
+- Restored video seeking by using direct file URLs for local video playback
+- Closed the image viewer when leaving fullscreen mode
+
+### Verification
+
+- Verified UNC disconnect and recovery handling
+- Verified local video playback and seeking
+- Verified image-viewer behavior when fullscreen mode exits
+
+---
+
 ## v0.3.1 - UNC Path Registration
 
 ### Added
