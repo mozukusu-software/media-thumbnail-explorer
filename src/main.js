@@ -24,13 +24,8 @@ function getFfmpegExecutable() {
     return ffmpegExecutable;
   }
 
-  try {
-    ffmpegExecutable = require('ffmpeg-static');
-    return ffmpegExecutable;
-  } catch {
-    ffmpegExecutable = 'ffmpeg';
-    return ffmpegExecutable;
-  }
+  ffmpegExecutable = 'ffmpeg';
+  return ffmpegExecutable;
 }
 
 function getFfprobeExecutable() {
@@ -41,13 +36,8 @@ function getFfprobeExecutable() {
     return ffprobeExecutable;
   }
 
-  try {
-    ffprobeExecutable = require('@derhuerst/ffprobe-static');
-    return ffprobeExecutable;
-  } catch {
-    ffprobeExecutable = 'ffprobe';
-    return ffprobeExecutable;
-  }
+  ffprobeExecutable = 'ffprobe';
+  return ffprobeExecutable;
 }
 
 function runProcess(executable, args, maxOutputBytes = 10 * 1024 * 1024) {
@@ -322,7 +312,7 @@ async function extractVideoFrame(filePath, timeSeconds, width = 320, height = 24
     result = await runProcess(getFfmpegExecutable(), args);
   } catch (error) {
     if (error.code === 'ENOENT') {
-      throw new Error('FFmpegが見つかりません。ffmpeg-staticをインストールするか、FFMPEG_PATHを設定してください。');
+      throw new Error('FFmpegが見つかりません。FFmpegをインストールしてPATHに追加するか、FFMPEG_PATHを設定してください。');
     }
     throw error;
   }
@@ -368,7 +358,7 @@ async function getVideoDuration(filePath) {
     result = await runProcess(getFfprobeExecutable(), args, 1024 * 1024);
   } catch (error) {
     if (error.code === 'ENOENT') {
-      throw new Error('FFprobeが見つかりません。@derhuerst/ffprobe-staticをインストールするか、FFPROBE_PATHを設定してください。');
+      throw new Error('FFprobeが見つかりません。FFmpegをインストールしてPATHに追加するか、FFPROBE_PATHを設定してください。');
     }
     throw error;
   }
