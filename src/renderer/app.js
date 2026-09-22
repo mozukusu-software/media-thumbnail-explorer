@@ -21,11 +21,37 @@ let imageViewerFile = null;
 let generationToken = 0;
 let thumbnailLoadToken = 0;
 let activeThumbnailJobs = 0;
-let videoVolume = 1;
-let videoMuted = false;
 const thumbnailQueue = [];
 const MAX_THUMBNAIL_JOBS = 2;
 const LAST_FOLDER_STORAGE_KEY = 'media-thumbnail-explorer:last-folder';
+const VIDEO_AUDIO_STORAGE_KEY = 'media-thumbnail-explorer:video-audio';
+const initialVideoAudio = loadVideoAudioPreference();
+let videoVolume = initialVideoAudio.volume;
+let videoMuted = initialVideoAudio.muted;
+
+function loadVideoAudioPreference() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(VIDEO_AUDIO_STORAGE_KEY));
+    const volume = Number.isFinite(stored?.volume)
+      ? Math.min(1, Math.max(0, stored.volume))
+      : 1;
+    const muted = typeof stored?.muted === 'boolean' ? stored.muted : false;
+    return { volume, muted };
+  } catch {
+    return { volume: 1, muted: false };
+  }
+}
+
+function saveVideoAudioPreference() {
+  try {
+    localStorage.setItem(VIDEO_AUDIO_STORAGE_KEY, JSON.stringify({
+      volume: videoVolume,
+      muted: videoMuted
+    }));
+  } catch {
+    // Keep the in-memory preference even if persistent storage is unavailable.
+  }
+}
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
@@ -561,6 +587,7 @@ async function renderVideo(file) {
   player.addEventListener('volumechange', () => {
     videoVolume = player.volume;
     videoMuted = player.muted;
+    saveVideoAudioPreference();
   });
   player.src = file.url;
   const status = document.createElement('div');
