@@ -106,6 +106,11 @@ const IMAGE_EXTENSIONS = new Set([
   '.tif', '.tiff', '.heic', '.heif', '.jxl'
 ]);
 const TRANSCODE_IMAGE_EXTENSIONS = new Set(['.tif', '.tiff', '.heic', '.heif', '.jxl']);
+const IMAGE_CONTENT_TYPES = new Map([
+  ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'], ['.jfif', 'image/jpeg'], ['.pjpeg', 'image/jpeg'], ['.pjp', 'image/jpeg'],
+  ['.png', 'image/png'], ['.apng', 'image/apng'], ['.gif', 'image/gif'], ['.bmp', 'image/bmp'],
+  ['.webp', 'image/webp'], ['.avif', 'image/avif'], ['.svg', 'image/svg+xml'], ['.ico', 'image/x-icon']
+]);
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.m4v', '.webm', '.mov', '.avi', '.mkv', '.wmv', '.mpeg', '.mpg']);
 
 protocol.registerSchemesAsPrivileged([
@@ -488,12 +493,14 @@ app.whenReady().then(async () => {
           .then((output) => new Response(output, { headers: { 'Content-Type': 'image/png' } }))
           .catch((error) => new Response(`Image conversion failed: ${error.message}`, { status: 415 }));
       }
-      // Preserve media request headers (especially Range) so Chromium can seek
-      // to arbitrary positions in local video files through the custom protocol.
-      return net.fetch(pathToFileURL(filePath).toString(), {
-        method: request.method,
-        headers: request.headers
-      });
+      if (!IMAGE_EXTENSIONS.has(extension)) {
+        return new Response('Unsupported media type', { status: 415 });
+      }
+      return fs.readFile(filePath)
+        .then((output) => new Response(output, {
+          headers: { 'Content-Type': IMAGE_CONTENT_TYPES.get(extension) || 'application/octet-stream' }
+        }))
+        .catch((error) => new Response(`Image read failed: ${error.message}`, { status: 404 }));
     } catch {
       return new Response('Bad media path', { status: 400 });
     }

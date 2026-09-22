@@ -12,6 +12,11 @@ const imageViewerImage = document.querySelector('#imageViewerImage');
 const imageViewerName = document.querySelector('#imageViewerName');
 const imageViewerClose = document.querySelector('#imageViewerClose');
 const addNetworkRoot = document.querySelector('#addNetworkRoot');
+const networkRootDialog = document.querySelector('#networkRootDialog');
+const networkRootInput = document.querySelector('#networkRootInput');
+const networkRootError = document.querySelector('#networkRootError');
+const networkRootCancel = document.querySelector('#networkRootCancel');
+const networkRootSubmit = document.querySelector('#networkRootSubmit');
 
 let selectedTreeRow = null;
 let selectedFileRow = null;
@@ -668,19 +673,64 @@ async function reloadRoots() {
   return roots;
 }
 
-addNetworkRoot.addEventListener('click', async () => {
-  const input = prompt('追加するUNCパスを入力してください。\n例: \\\\server\\share');
-  if (input === null) return;
+function closeNetworkRootDialog() {
+  networkRootDialog.classList.add('hidden');
+  networkRootError.classList.add('hidden');
+  networkRootError.textContent = '';
+  addNetworkRoot.focus();
+}
+
+function openNetworkRootDialog() {
+  networkRootInput.value = '';
+  networkRootError.classList.add('hidden');
+  networkRootError.textContent = '';
+  networkRootDialog.classList.remove('hidden');
+  networkRootInput.focus();
+}
+
+async function submitNetworkRoot() {
+  const input = networkRootInput.value.trim();
+  if (!input) {
+    networkRootError.textContent = 'UNCパスを入力してください。';
+    networkRootError.classList.remove('hidden');
+    networkRootInput.focus();
+    return;
+  }
+
+  networkRootSubmit.disabled = true;
+  networkRootCancel.disabled = true;
   try {
     const result = await window.mediaExplorer.addNetworkRoot(input);
     if (!result?.ok) {
-      alert(result?.error || 'UNCパスを登録できませんでした。');
+      networkRootError.textContent = result?.error || 'UNCパスを登録できませんでした。';
+      networkRootError.classList.remove('hidden');
       return;
     }
     tree.append(createTreeNode({ name: result.path, path: result.path, hasChildren: true, networkRoot: true }));
+    closeNetworkRootDialog();
   } catch (error) {
-    alert(`UNCパスを登録できませんでした。\n${error.message}`);
+    networkRootError.textContent = `UNCパスを登録できませんでした。 ${error.message}`;
+    networkRootError.classList.remove('hidden');
+  } finally {
+    networkRootSubmit.disabled = false;
+    networkRootCancel.disabled = false;
   }
+}
+
+addNetworkRoot.addEventListener('click', openNetworkRootDialog);
+networkRootCancel.addEventListener('click', closeNetworkRootDialog);
+networkRootSubmit.addEventListener('click', submitNetworkRoot);
+networkRootInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    submitNetworkRoot();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    closeNetworkRootDialog();
+  }
+});
+networkRootDialog.addEventListener('click', (event) => {
+  if (event.target === networkRootDialog) closeNetworkRootDialog();
 });
 
 async function initialize() {
