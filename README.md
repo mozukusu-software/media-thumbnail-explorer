@@ -149,7 +149,7 @@ causes, and the fixes that followed.
 Latest release:
 
 ``` text
-v0.3.1
+v0.3.2
 ```
 
 See [CHANGELOG.md](CHANGELOG.md) for the version history.
