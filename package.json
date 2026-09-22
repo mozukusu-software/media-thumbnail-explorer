@@ -21,10 +21,12 @@
     "productName": "Media Thumbnail Explorer",
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "assets/**/*"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
