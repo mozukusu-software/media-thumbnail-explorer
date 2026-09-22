@@ -1,6 +1,6 @@
 {
   "name": "media-thumbnail-explorer",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Windows向け画像・動画サムネイルエクスプローラー",
   "main": "src/main.js",
   "author": "mozukuSu",
@@ -36,8 +36,8 @@
     }
   },
   "allowScripts": {
-    "electron@38.8.6": true,
     "electron-winstaller@5.4.0": true,
-    "sharp@0.34.5": true
+    "electron@44.4.3": true,
+    "sharp@0.35.4": true
   }
 }
