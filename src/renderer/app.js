@@ -573,7 +573,7 @@ function selectFile(file) {
 function once(target, eventName) {
   return new Promise((resolve, reject) => {
     const onSuccess = () => { cleanup(); resolve(); };
-    const onError = () => { cleanup(); reject(new Error('動画を読み込めませんでした。Electronが対応していないコーデックの可能性があります。')); };
+    const onError = () => { cleanup(); reject(new Error('動画を読み込めませんでした。Media Thumbnail Explorerが対応していないコーデック、または読み込めない動画形式の可能性があります。')); };
     const cleanup = () => { target.removeEventListener(eventName, onSuccess); target.removeEventListener('error', onError); };
     target.addEventListener(eventName, onSuccess, { once: true });
     target.addEventListener('error', onError, { once: true });

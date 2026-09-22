@@ -1,15 +1,20 @@
 const { app, BrowserWindow, ipcMain, protocol, net, shell } = require('electron');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const sharp = require('sharp');
 const { spawn } = require('node:child_process');
-const { createHash } = require('node:crypto');
+const { createHash, randomBytes } = require('node:crypto');
 const { LocalStorageProvider, classifyStorageError } = require('./storage/local-storage-provider');
 
 let ffmpegExecutable = null;
 let ffprobeExecutable = null;
 const activeChildProcesses = new Set();
+let uncMediaServer = null;
+let uncMediaServerPort = null;
+const uncMediaServerToken = randomBytes(24).toString('hex');
 
 function getFfmpegExecutable() {
   if (ffmpegExecutable) return ffmpegExecutable;
@@ -130,13 +135,143 @@ function decodeMediaUrl(url) {
   return Buffer.from(parsed.pathname.slice(1), 'base64url').toString('utf8');
 }
 
+function isUncPath(filePath) {
+  return typeof filePath === 'string' && /^\\\\[^\\]+\\[^\\]+/.test(filePath);
+}
+
+function encodeUncVideoUrl(filePath) {
+  if (!uncMediaServerPort) throw new Error('UNC media server is not ready');
+  const encodedPath = Buffer.from(filePath, 'utf8').toString('base64url');
+  return `http://127.0.0.1:${uncMediaServerPort}/${uncMediaServerToken}/${encodedPath}`;
+}
+
+function parseSingleByteRange(rangeHeader, size) {
+  if (!rangeHeader) return { start: 0, end: size - 1, partial: false };
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
+  if (!match || (match[1] === '' && match[2] === '')) return null;
+
+  let start;
+  let end;
+  if (match[1] === '') {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null;
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === '' ? size - 1 : Number(match[2]);
+  }
+
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size || end < start) {
+    return null;
+  }
+  return { start, end: Math.min(end, size - 1), partial: true };
+}
+
+async function isRegisteredNetworkMediaPath(filePath) {
+  if (!isUncPath(filePath)) return false;
+  const normalized = path.win32.normalize(filePath).toLowerCase();
+  const settings = await loadAppSettings();
+  return settings.networkRoots.some((root) => {
+    const normalizedRoot = path.win32.normalize(root).replace(/\\+$/, '').toLowerCase();
+    return normalized === normalizedRoot || normalized.startsWith(`${normalizedRoot}\\`);
+  });
+}
+
+function startUncMediaServer() {
+  if (uncMediaServer) return Promise.resolve();
+
+  uncMediaServer = http.createServer(async (request, response) => {
+    try {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        response.writeHead(405, { Allow: 'GET, HEAD' });
+        response.end();
+        return;
+      }
+
+      const requestUrl = new URL(request.url, 'http://127.0.0.1');
+      const parts = requestUrl.pathname.split('/').filter(Boolean);
+      if (parts.length !== 2 || parts[0] !== uncMediaServerToken) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+
+      const filePath = Buffer.from(parts[1], 'base64url').toString('utf8');
+      const extension = path.extname(filePath).toLowerCase();
+      if (!VIDEO_EXTENSIONS.has(extension) || !(await isRegisteredNetworkMediaPath(filePath))) {
+        response.writeHead(403);
+        response.end();
+        return;
+      }
+
+      const stat = await fs.stat(filePath);
+      if (!stat.isFile() || stat.size <= 0) {
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+
+      const range = parseSingleByteRange(request.headers.range, stat.size);
+      if (!range) {
+        response.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+        response.end();
+        return;
+      }
+
+      const contentLength = range.end - range.start + 1;
+      const headers = {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': contentLength,
+        'Content-Type': 'video/mp4'
+      };
+      if (range.partial) headers['Content-Range'] = `bytes ${range.start}-${range.end}/${stat.size}`;
+
+      response.writeHead(range.partial ? 206 : 200, headers);
+      if (request.method === 'HEAD') {
+        response.end();
+        return;
+      }
+
+      const stream = fsSync.createReadStream(filePath, { start: range.start, end: range.end });
+      stream.on('error', () => {
+        if (!response.headersSent) response.writeHead(500);
+        response.destroy();
+      });
+      stream.pipe(response);
+    } catch {
+      if (!response.headersSent) response.writeHead(404);
+      response.end();
+    }
+  });
+
+  return new Promise((resolve, reject) => {
+    uncMediaServer.once('error', reject);
+    uncMediaServer.listen(0, '127.0.0.1', () => {
+      uncMediaServer.off('error', reject);
+      const address = uncMediaServer.address();
+      uncMediaServerPort = typeof address === 'object' && address ? address.port : null;
+      resolve();
+    });
+  });
+}
+
+function stopUncMediaServer() {
+  if (!uncMediaServer) return;
+  uncMediaServer.close();
+  uncMediaServer = null;
+  uncMediaServerPort = null;
+}
+
 const storageProvider = new LocalStorageProvider();
 
 async function listMediaFiles(folderPath) {
   const files = await storageProvider.listMediaFiles(folderPath);
   return files.map((file) => ({
     ...file,
-    url: file.type === 'video' ? pathToFileURL(file.path).toString() : encodeMediaUrl(file.path)
+    url: file.type === 'video'
+      ? (isUncPath(file.path) ? encodeUncVideoUrl(file.path) : pathToFileURL(file.path).toString())
+      : encodeMediaUrl(file.path)
   }));
 }
 
@@ -483,6 +618,7 @@ async function createWindow() {
 app.whenReady().then(async () => {
   const settings = await loadAppSettings();
   storageProvider.setNetworkRoots(settings.networkRoots);
+  await startUncMediaServer();
   protocol.handle('media-file', (request) => {
     try {
       const filePath = decodeMediaUrl(request.url);
@@ -523,7 +659,10 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on('before-quit', terminateChildProcesses);
+app.on('before-quit', () => {
+  stopUncMediaServer();
+  terminateChildProcesses();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
