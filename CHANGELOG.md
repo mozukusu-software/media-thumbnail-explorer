@@ -6,8 +6,6 @@
 
 ## v0.4.0 - External FFmpeg and Release Preparation
 
-_In Development_
-
 ### Changed
 
 - Removed bundled FFmpeg / FFprobe npm dependencies

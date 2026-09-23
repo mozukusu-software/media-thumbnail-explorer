@@ -40,23 +40,51 @@ function getFfprobeExecutable() {
   return ffprobeExecutable;
 }
 
-function runProcess(executable, args, maxOutputBytes = 10 * 1024 * 1024) {
+const PROCESS_TIMEOUT_MS = 30_000;
+const MAX_STDERR_BYTES = 1024 * 1024;
+const thumbnailProcesses = new Map();
+const cancelledThumbnailJobs = new Set();
+
+function runProcess(executable, args, maxOutputBytes = 10 * 1024 * 1024, { jobId = null } = {}) {
   return new Promise((resolve, reject) => {
+    if (jobId && cancelledThumbnailJobs.has(jobId)) {
+      reject(new Error('Thumbnail generation was cancelled.'));
+      return;
+    }
+
     const child = spawn(executable, args, {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });
+
     activeChildProcesses.add(child);
+    if (jobId) thumbnailProcesses.set(jobId, child);
+
     const stdout = [];
     const stderr = [];
     let stdoutBytes = 0;
+    let stderrBytes = 0;
     let settled = false;
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      activeChildProcesses.delete(child);
+      if (jobId && thumbnailProcesses.get(jobId) === child) {
+        thumbnailProcesses.delete(jobId);
+      }
+    };
 
     const finish = (callback) => {
       if (settled) return;
       settled = true;
+      cleanup();
       callback();
     };
+
+    const timeout = setTimeout(() => {
+      child.kill();
+      finish(() => reject(new Error('メディア処理がタイムアウトしました。')));
+    }, PROCESS_TIMEOUT_MS);
 
     child.stdout.on('data', (chunk) => {
       stdoutBytes += chunk.length;
@@ -67,20 +95,44 @@ function runProcess(executable, args, maxOutputBytes = 10 * 1024 * 1024) {
       }
       stdout.push(chunk);
     });
-    child.stderr.on('data', (chunk) => stderr.push(chunk));
-    child.on('error', (error) => {
-      activeChildProcesses.delete(child);
-      finish(() => reject(error));
+
+    child.stderr.on('data', (chunk) => {
+      if (stderrBytes >= MAX_STDERR_BYTES) return;
+      const remaining = MAX_STDERR_BYTES - stderrBytes;
+      const kept = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+      stderr.push(kept);
+      stderrBytes += kept.length;
     });
+
+    child.on('error', (error) => finish(() => reject(error)));
     child.on('close', (code) => {
-      activeChildProcesses.delete(child);
       finish(() => resolve({
-      code,
-      stdout: Buffer.concat(stdout),
-      stderr: Buffer.concat(stderr).toString('utf8').trim()
+        code,
+        stdout: Buffer.concat(stdout),
+        stderr: Buffer.concat(stderr).toString('utf8').trim()
       }));
     });
   });
+}
+
+function cancelThumbnailProcess(jobId) {
+  if (typeof jobId !== 'string' || !jobId) return false;
+  cancelledThumbnailJobs.add(jobId);
+  const child = thumbnailProcesses.get(jobId);
+  if (!child) return true;
+  thumbnailProcesses.delete(jobId);
+  try {
+    child.kill();
+  } catch {
+    // The cancellation state still prevents this job from spawning another process.
+  }
+  return true;
+}
+
+function clearThumbnailCancellation(jobId) {
+  if (typeof jobId === 'string' && jobId) {
+    cancelledThumbnailJobs.delete(jobId);
+  }
 }
 
 function terminateChildProcesses() {
@@ -130,7 +182,7 @@ function isUncPath(filePath) {
 }
 
 function encodeUncVideoUrl(filePath) {
-  if (!uncMediaServerPort) throw new Error('UNC media server is not ready');
+  if (!uncMediaServerPort) return null;
   const encodedPath = Buffer.from(filePath, 'utf8').toString('base64url');
   return `http://127.0.0.1:${uncMediaServerPort}/${uncMediaServerToken}/${encodedPath}`;
 }
@@ -236,9 +288,14 @@ function startUncMediaServer() {
   });
 
   return new Promise((resolve, reject) => {
-    uncMediaServer.once('error', reject);
+    const handleStartupError = (error) => {
+      uncMediaServer = null;
+      uncMediaServerPort = null;
+      reject(error);
+    };
+    uncMediaServer.once('error', handleStartupError);
     uncMediaServer.listen(0, '127.0.0.1', () => {
-      uncMediaServer.off('error', reject);
+      uncMediaServer.off('error', handleStartupError);
       const address = uncMediaServer.address();
       uncMediaServerPort = typeof address === 'object' && address ? address.port : null;
       resolve();
@@ -257,12 +314,21 @@ const storageProvider = new LocalStorageProvider();
 
 async function listMediaFiles(folderPath) {
   const files = await storageProvider.listMediaFiles(folderPath);
-  return files.map((file) => ({
-    ...file,
-    url: file.type === 'video'
-      ? (isUncPath(file.path) ? encodeUncVideoUrl(file.path) : pathToFileURL(file.path).toString())
-      : encodeMediaUrl(file.path)
-  }));
+  return files.map((file) => {
+    if (file.type !== 'video') {
+      return { ...file, url: encodeMediaUrl(file.path) };
+    }
+    if (!isUncPath(file.path)) {
+      return { ...file, url: pathToFileURL(file.path).toString() };
+    }
+
+    const url = encodeUncVideoUrl(file.path);
+    return {
+      ...file,
+      url,
+      playbackError: url ? null : 'UNC動画再生サーバーを起動できなかったため、内蔵プレイヤーでは再生できません。ファイル一覧と画像閲覧は利用できます。'
+    };
+  });
 }
 
 async function storageResult(targetPath, operation) {
@@ -292,7 +358,7 @@ async function openVideo(filePath) {
 }
 
 
-async function extractVideoFrame(filePath, timeSeconds, width = 320, height = 240) {
+async function extractVideoFrame(filePath, timeSeconds, width = 320, height = 240, jobId = null) {
   const args = [
     '-hide_banner',
     '-loglevel', 'error',
@@ -309,7 +375,7 @@ async function extractVideoFrame(filePath, timeSeconds, width = 320, height = 24
 
   let result;
   try {
-    result = await runProcess(getFfmpegExecutable(), args);
+    result = await runProcess(getFfmpegExecutable(), args, 10 * 1024 * 1024, { jobId });
   } catch (error) {
     if (error.code === 'ENOENT') {
       throw new Error('FFmpegが見つかりません。FFmpegをインストールしてPATHに追加するか、FFMPEG_PATHを設定してください。');
@@ -323,7 +389,7 @@ async function extractVideoFrame(filePath, timeSeconds, width = 320, height = 24
   return result.stdout;
 }
 
-async function generateVideoThumbnail(filePath, timeSeconds) {
+async function generateVideoThumbnail(filePath, timeSeconds, jobId = null) {
   if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) {
     return { ok: false, error: '動画のパスが正しくありません。' };
   }
@@ -337,14 +403,14 @@ async function generateVideoThumbnail(filePath, timeSeconds) {
   try {
     const stat = await fs.stat(filePath);
     if (!stat.isFile()) return { ok: false, error: '動画ファイルが見つかりません。' };
-    const image = await extractVideoFrame(filePath, timeSeconds);
+    const image = await extractVideoFrame(filePath, timeSeconds, 320, 240, jobId);
     return { ok: true, mime: 'image/jpeg', data: image.toString('base64') };
   } catch (error) {
     return { ok: false, error: error.message };
   }
 }
 
-async function getVideoDuration(filePath) {
+async function getVideoDuration(filePath, jobId = null) {
   const args = [
     '-v', 'error',
     '-select_streams', 'V:0',
@@ -355,7 +421,7 @@ async function getVideoDuration(filePath) {
 
   let result;
   try {
-    result = await runProcess(getFfprobeExecutable(), args, 1024 * 1024);
+    result = await runProcess(getFfprobeExecutable(), args, 1024 * 1024, { jobId });
   } catch (error) {
     if (error.code === 'ENOENT') {
       throw new Error('FFprobeが見つかりません。FFmpegをインストールしてPATHに追加するか、FFPROBE_PATHを設定してください。');
@@ -399,31 +465,41 @@ async function createImageListThumbnail(filePath) {
     .toBuffer();
 }
 
-async function createVideoListThumbnail(filePath) {
-  const duration = await getVideoDuration(filePath);
+function isExternalToolConfigurationError(error) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.includes('FFmpegが見つかりません') || message.includes('FFprobeが見つかりません');
+}
+
+async function createVideoListThumbnail(filePath, jobId = null) {
+  const duration = await getVideoDuration(filePath, jobId);
   const fractions = duration < 3 ? [0.5] : [0.1, 0.25, 0.4];
   let bestImage = null;
   let bestScore = -Infinity;
+  let actionableError = null;
 
   for (const fraction of fractions) {
     const time = Math.min(Math.max(duration * fraction, 0), Math.max(0, duration - 0.1));
     try {
-      const image = await extractVideoFrame(filePath, time, 160, 100);
+      const image = await extractVideoFrame(filePath, time, 160, 100, jobId);
       const score = await scoreThumbnail(image);
       if (score > bestScore) {
         bestScore = score;
         bestImage = image;
       }
-    } catch {
-      // Try the next representative position.
+    } catch (error) {
+      if (isExternalToolConfigurationError(error)) actionableError = error;
+      // Try the next representative position for media-specific extraction failures.
     }
   }
 
-  if (!bestImage) throw new Error('動画から代表サムネイルを取得できませんでした。');
+  if (!bestImage) {
+    if (actionableError) throw actionableError;
+    throw new Error('動画から代表サムネイルを取得できませんでした。');
+  }
   return bestImage;
 }
 
-async function getListThumbnail(filePath, type) {
+async function getListThumbnail(filePath, type, jobId = null) {
   if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) {
     return { ok: false, error: 'メディアのパスが正しくありません。' };
   }
@@ -450,7 +526,7 @@ async function getListThumbnail(filePath, type) {
     } catch {
       image = type === 'image'
         ? await createImageListThumbnail(filePath)
-        : await createVideoListThumbnail(filePath);
+        : await createVideoListThumbnail(filePath, jobId);
       await fs.mkdir(path.dirname(cachePath), { recursive: true });
       await fs.writeFile(cachePath, image);
     }
@@ -608,7 +684,11 @@ async function createWindow() {
 app.whenReady().then(async () => {
   const settings = await loadAppSettings();
   storageProvider.setNetworkRoots(settings.networkRoots);
-  await startUncMediaServer();
+  try {
+    await startUncMediaServer();
+  } catch (error) {
+    console.error('UNC media server could not be started; UNC video playback is disabled:', error);
+  }
   protocol.handle('media-file', (request) => {
     try {
       const filePath = decodeMediaUrl(request.url);
@@ -640,8 +720,22 @@ app.whenReady().then(async () => {
   ipcMain.handle('fs:media', (_event, folderPath) =>
     storageResult(folderPath, () => listMediaFiles(folderPath)));
   ipcMain.handle('shell:open-video', (_event, filePath) => openVideo(filePath));
-  ipcMain.handle('video:thumbnail', (_event, filePath, timeSeconds) => generateVideoThumbnail(filePath, timeSeconds));
-  ipcMain.handle('media:list-thumbnail', (_event, filePath, type) => getListThumbnail(filePath, type));
+  ipcMain.handle('video:thumbnail', async (_event, filePath, timeSeconds, jobId) => {
+    try {
+      return await generateVideoThumbnail(filePath, timeSeconds, jobId);
+    } finally {
+      clearThumbnailCancellation(jobId);
+    }
+  });
+  ipcMain.handle('video:cancel-thumbnail', (_event, jobId) => cancelThumbnailProcess(jobId));
+  ipcMain.handle('media:list-thumbnail', async (_event, filePath, type, jobId) => {
+    try {
+      return await getListThumbnail(filePath, type, jobId);
+    } finally {
+      clearThumbnailCancellation(jobId);
+    }
+  });
+  ipcMain.handle('media:cancel-thumbnail', (_event, jobId) => cancelThumbnailProcess(jobId));
   createWindow();
 
   app.on('activate', () => {

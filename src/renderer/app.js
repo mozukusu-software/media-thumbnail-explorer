@@ -24,6 +24,9 @@ let selectedFile = null;
 let currentFolderFiles = [];
 let imageViewerFile = null;
 let generationToken = 0;
+let activePreviewThumbnailJobId = null;
+const activeListThumbnailJobIds = new Set();
+let listThumbnailJobSequence = 0;
 let thumbnailLoadToken = 0;
 let activeThumbnailJobs = 0;
 const thumbnailQueue = [];
@@ -196,19 +199,32 @@ function setThumbnailImage(container, src, file) {
   image.src = src;
 }
 
+function setThumbnailError(container, file, errorMessage) {
+  container.replaceChildren(createThumbnailPlaceholder(file));
+  container.classList.remove('loading');
+  if (errorMessage) {
+    const message = `サムネイルを生成できませんでした: ${errorMessage}`;
+    container.title = message;
+    container.setAttribute('aria-label', `${file.name}: ${message}`);
+  }
+}
+
 function pumpThumbnailQueue() {
   while (activeThumbnailJobs < MAX_THUMBNAIL_JOBS && thumbnailQueue.length) {
     const job = thumbnailQueue.shift();
     if (job.token !== thumbnailLoadToken) continue;
     activeThumbnailJobs += 1;
-    window.mediaExplorer.getListThumbnail(job.file.path, job.file.type)
+    const jobId = `list-${job.token}-${++listThumbnailJobSequence}`;
+    activeListThumbnailJobIds.add(jobId);
+    window.mediaExplorer.getListThumbnail(job.file.path, job.file.type, jobId)
       .then((result) => {
         if (job.token !== thumbnailLoadToken) return;
         if (result?.ok && result.dataUrl) setThumbnailImage(job.container, result.dataUrl, job.file);
-        else job.container.classList.remove('loading');
+        else setThumbnailError(job.container, job.file, result?.error || '原因を取得できませんでした。');
       })
-      .catch(() => job.container.classList.remove('loading'))
+      .catch((error) => setThumbnailError(job.container, job.file, error?.message || '原因を取得できませんでした。'))
       .finally(() => {
+        activeListThumbnailJobIds.delete(jobId);
         activeThumbnailJobs -= 1;
         pumpThumbnailQueue();
       });
@@ -406,6 +422,9 @@ async function restoreRememberedFolder() {
 async function selectFolder(folderPath, row, { silent = false } = {}) {
   const thumbnailToken = ++thumbnailLoadToken;
   thumbnailQueue.length = 0;
+  for (const jobId of activeListThumbnailJobIds) {
+    window.mediaExplorer.cancelListThumbnail(jobId).catch(() => {});
+  }
   try {
     const files = storageDataOrThrow(await window.mediaExplorer.getMediaFiles(folderPath));
     if (thumbnailToken !== thumbnailLoadToken) return false;
@@ -540,8 +559,16 @@ function createFileRow(file, thumbnailToken) {
   return row;
 }
 
+function cancelActivePreviewThumbnailJob() {
+  const jobId = activePreviewThumbnailJobId;
+  if (!jobId) return Promise.resolve(false);
+  activePreviewThumbnailJobId = null;
+  return window.mediaExplorer.cancelVideoThumbnail(jobId).catch(() => false);
+}
+
 function clearPreview() {
   generationToken += 1;
+  cancelActivePreviewThumbnailJob();
   selectedFile = null;
   selectedName.textContent = 'ファイル未選択';
   intervalControl.classList.add('hidden');
@@ -550,6 +577,7 @@ function clearPreview() {
 
 function selectFile(file) {
   generationToken += 1;
+  cancelActivePreviewThumbnailJob();
   selectedFile = file;
   selectedName.textContent = file.name;
   selectedName.title = file.path;
@@ -583,6 +611,10 @@ function once(target, eventName) {
 async function renderVideo(file) {
   const token = ++generationToken;
   previewContent.replaceChildren();
+  if (!file.url) {
+    showError(previewContent, new Error(file.playbackError || 'この動画を内蔵プレイヤーで再生できません。'));
+    return;
+  }
   const player = document.createElement('video');
   player.className = 'video-player';
   player.controls = true;
@@ -603,7 +635,15 @@ async function renderVideo(file) {
   cancel.type = 'button';
   cancel.className = 'cancel-button';
   cancel.textContent = '生成を中止';
-  cancel.addEventListener('click', () => { generationToken += 1; statusText.textContent = 'サムネイル生成を中止しました'; cancel.remove(); });
+  cancel.addEventListener('click', () => {
+    generationToken += 1;
+    if (activePreviewThumbnailJobId) {
+      window.mediaExplorer.cancelVideoThumbnail(activePreviewThumbnailJobId).catch(() => {});
+      activePreviewThumbnailJobId = null;
+    }
+    statusText.textContent = 'サムネイル生成を中止しました';
+    cancel.remove();
+  });
   status.append(statusText, cancel);
   const grid = document.createElement('div');
   grid.className = 'thumbnail-grid';
@@ -620,7 +660,10 @@ async function renderVideo(file) {
 
     for (let index = 0; index < times.length; index += 1) {
       if (token !== generationToken) return;
-      const result = await window.mediaExplorer.getVideoThumbnail(file.path, times[index]);
+      const jobId = `preview-${token}-${index}`;
+      activePreviewThumbnailJobId = jobId;
+      const result = await window.mediaExplorer.getVideoThumbnail(file.path, times[index], jobId);
+      if (activePreviewThumbnailJobId === jobId) activePreviewThumbnailJobId = null;
       if (token !== generationToken) return;
       if (!result?.ok) throw new Error(result?.error || 'サムネイルを生成できませんでした。');
 
@@ -662,6 +705,8 @@ currentPath.addEventListener('keydown', (event) => {
 });
 
 intervalSelect.addEventListener('change', () => {
+  generationToken += 1;
+  cancelActivePreviewThumbnailJob();
   if (selectedFile?.type === 'video') renderVideo(selectedFile);
 });
 
