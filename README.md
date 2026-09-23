@@ -22,7 +22,7 @@ tree, media list, and preview in a single interface.
 -   Supports previous/next image navigation with `Left Arrow` /
     `Right Arrow` in the fullscreen viewer
 -   Opens videos with the OS default application on double-click
--   Converts TIFF / HEIC / HEIF / JXL to PNG for display
+-   Converts TIFF and other Sharp-decodable image formats to PNG for display
 -   Restores window size, position, and maximized state on the next
     launch
 -   Restores the last opened folder on the next launch
@@ -36,9 +36,17 @@ tree, media list, and preview in a single interface.
 
 ### Images
 
+Recognized image extensions:
+
 `jpg` / `jpeg` / `jfif` / `pjpeg` / `pjp` / `png` / `apng` / `gif` /
 `bmp` / `webp` / `avif` / `svg` / `ico` / `tif` / `tiff` / `heic` /
 `heif` / `jxl`
+
+Actual decoding support depends on the image codecs available to Sharp/libvips.
+The standard Sharp prebuilt binaries support JPEG, PNG, Ultra HDR, WebP, AVIF,
+TIFF, GIF, and SVG input. HEIC/HEIF using HEVC and JPEG XL (JXL) require
+additional libvips codec support and therefore are not guaranteed by a standard
+`npm install`.
 
 ### Videos
 
@@ -48,19 +56,25 @@ tree, media list, and preview in a single interface.
 
 ## Requirements
 
--   Windows
--   Node.js
--   npm
+-   Windows 10 or later, 64-bit
+-   Node.js 22.12.0 or later
+-   npm (installed with Node.js)
 -   An environment capable of running Electron
+
+Electron 44 is published only for 64-bit platforms. Electron's current Windows
+build prerequisites require Windows 10 or later and Node.js 22.12.0 or later.
 
 FFmpeg and FFprobe are optional external requirements for video-thumbnail generation.
 They are not bundled with Media Thumbnail Explorer. The application remains usable
 without them, but video thumbnails cannot be generated.
 
-The application resolves the executables in the following order:
+The application resolves each executable as follows:
 
-1.  `FFMPEG_PATH` / `FFPROBE_PATH` environment variables
-2.  `ffmpeg` / `ffprobe` available on `PATH`
+1.  If `FFMPEG_PATH` / `FFPROBE_PATH` is set, that configured value is used.
+2.  Otherwise, `ffmpeg` / `ffprobe` is resolved from `PATH`.
+
+An invalid `FFMPEG_PATH` or `FFPROBE_PATH` value does not fall back to `PATH`;
+remove or correct the environment variable to use the executable from `PATH`.
 
 ------------------------------------------------------------------------
 
@@ -164,12 +178,6 @@ causes, and the fixes that followed.
 Latest release:
 
 ``` text
-v0.3.4
-```
-
-In development:
-
-``` text
 v0.4.0
 ```
 
@@ -189,6 +197,13 @@ See [CHANGELOG.md](CHANGELOG.md) for the version history.
 -   Keep detailed version-specific development records under `doc/`
 -   Never modify the user's media files
 -   Avoid unnecessary dependencies on external services
+
+## Support
+
+Only the latest release is supported. Reports and information about older
+versions are welcome, but fixes are generally targeted at the latest release.
+
+Public contact: `dev@mozukusu-software.jpn.org`
 
 ------------------------------------------------------------------------
 
