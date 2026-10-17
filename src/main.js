@@ -8,11 +8,13 @@ const sharp = require('sharp');
 const { spawn } = require('node:child_process');
 const { createHash, randomBytes } = require('node:crypto');
 const { LocalStorageProvider, classifyStorageError } = require('./storage/local-storage-provider');
+const { MetadataStore } = require('./metadata/metadata-store');
 
 let ffmpegExecutable = null;
 let ffprobeExecutable = null;
 const activeChildProcesses = new Set();
 let uncMediaServer = null;
+let metadataStore = null;
 let uncMediaServerPort = null;
 const uncMediaServerToken = randomBytes(24).toString('hex');
 
@@ -682,6 +684,9 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  metadataStore = new MetadataStore(path.join(app.getPath('userData'), 'mte.db'));
+  metadataStore.initialize();
+
   const settings = await loadAppSettings();
   storageProvider.setNetworkRoots(settings.networkRoots);
   try {
@@ -719,6 +724,13 @@ app.whenReady().then(async () => {
     storageResult(folderPath, () => storageProvider.listDirectories(folderPath)));
   ipcMain.handle('fs:media', (_event, folderPath) =>
     storageResult(folderPath, () => listMediaFiles(folderPath)));
+  ipcMain.handle('tags:list', () => metadataStore.getTags());
+  ipcMain.handle('tags:create', (_event, name) => metadataStore.createTag(name));
+  ipcMain.handle('tags:delete', (_event, tagId) => metadataStore.deleteTag(tagId));
+  ipcMain.handle('tags:for-paths', (_event, filePaths) => metadataStore.getTagsForPaths(filePaths));
+  ipcMain.handle('tags:assign', (_event, file, tagId) => metadataStore.assignTag(file, tagId));
+  ipcMain.handle('tags:unassign', (_event, filePath, tagId) => metadataStore.unassignTag(filePath, tagId));
+  ipcMain.handle('tags:update-files', (_event, files, changes) => metadataStore.updateTagsForFiles(files, changes));
   ipcMain.handle('shell:open-video', (_event, filePath) => openVideo(filePath));
   ipcMain.handle('video:thumbnail', async (_event, filePath, timeSeconds, jobId) => {
     try {
@@ -744,6 +756,8 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  metadataStore?.close();
+  metadataStore = null;
   stopUncMediaServer();
   terminateChildProcesses();
 });

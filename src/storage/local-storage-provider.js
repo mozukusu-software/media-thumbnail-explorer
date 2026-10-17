@@ -119,8 +119,13 @@ class LocalStorageProvider {
       if (!type) continue;
       const fullPath = path.join(folderPath, entry.name);
       let size = 0;
-      try { size = (await fs.stat(fullPath)).size; } catch { /* File may have disappeared. */ }
-      files.push({ name: entry.name, path: fullPath, type, size });
+      let mtimeMs = 0;
+      try {
+        const stat = await fs.stat(fullPath);
+        size = stat.size;
+        mtimeMs = stat.mtimeMs;
+      } catch { /* File may have disappeared. */ }
+      files.push({ name: entry.name, path: fullPath, type, size, mtimeMs });
     }
     return files.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }));
   }
