@@ -1,6 +1,6 @@
 {
   "name": "media-thumbnail-explorer",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Windows向け画像・動画サムネイルエクスプローラー",
   "main": "src/main.js",
   "author": "mozukuSu",

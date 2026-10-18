@@ -2,6 +2,44 @@
 
 ------------------------------------------------------------------------
 
+# v0.5
+
+## v0.5.0 - File Tagging and Filtering
+
+### Added
+
+-   Added persistent file tags backed by SQLite metadata stored in the
+    application user-data directory.
+-   Added tag creation and case-insensitive duplicate prevention.
+-   Added right-click tag editing for single and multiple selected files,
+    including comma-separated new tags and tri-state existing-tag controls.
+-   Added permanent tag filtering below the folder tree with tag search and
+    AND / OR matching modes.
+-   Added tag information to media-list rows and the selected-file preview.
+-   Added draggable splitters for the folder/tag height and the main workspace
+    pane widths, with the selected ratios persisted locally.
+
+### Changed
+
+-   Updated project version metadata to 0.5.0.
+-   Tag metadata is maintained separately from the media files; assigning or
+    removing tags does not modify the user's media files.
+-   Files moved or renamed outside Media Thumbnail Explorer are not tracked in
+    v0.5.0 and are treated as different paths.
+
+### Verification
+
+-   Verified SQLite schema creation, tag persistence, case-insensitive
+    uniqueness, assignment, removal, cascade deletion, and bulk updates.
+-   Verified multi-selection, tri-state tag editing, tag badges and summaries,
+    AND / OR filtering, and draggable splitters.
+-   Verified the existing UNC, FFmpeg error handling, preview cancellation, and
+    media-processing job-control regressions remain covered.
+-   Verified the v0.5.0 UI with release screenshots for the tag overview,
+    multi-selection tag editor, and AND filtering.
+
+------------------------------------------------------------------------
+
 # v0.4
 
 ## v0.4.1 - Documentation and Release Gate
