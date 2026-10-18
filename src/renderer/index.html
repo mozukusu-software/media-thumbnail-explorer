@@ -15,9 +15,25 @@
 
   <main class="workspace">
     <aside class="folder-pane">
-      <div class="pane-title"><span>フォルダー</span><button id="addNetworkRoot" class="pane-action" type="button" title="UNCパスを追加" aria-label="UNCパスを追加">＋ UNC</button></div>
-      <div id="folderTree" class="folder-tree" role="tree" aria-label="フォルダーツリー"></div>
+      <section id="folderSection" class="folder-section">
+        <div class="pane-title"><span>フォルダー</span><button id="addNetworkRoot" class="pane-action" type="button" title="UNCパスを追加" aria-label="UNCパスを追加">＋ UNC</button></div>
+        <div id="folderTree" class="folder-tree" role="tree" aria-label="フォルダーツリー"></div>
+      </section>
+      <div id="folderTagSplitter" class="folder-tag-splitter" role="separator" aria-orientation="horizontal" aria-label="フォルダーとタグの高さを変更" tabindex="0"></div>
+      <section id="tagFilterPane" class="tag-filter-pane">
+        <div class="pane-title tag-pane-title"><span>タグで絞り込み</span><button id="tagFilterClear" class="tag-clear-button" type="button">解除</button></div>
+        <div class="tag-filter-controls">
+          <input id="tagSearchInput" class="tag-search-input" type="search" placeholder="タグ検索" aria-label="タグ検索">
+          <div class="tag-match-mode" role="radiogroup" aria-label="タグ絞り込み条件">
+            <label><input type="radio" name="tagMatchMode" value="and" checked> AND</label>
+            <label><input type="radio" name="tagMatchMode" value="or"> OR</label>
+          </div>
+        </div>
+        <div id="tagFilterList" class="tag-filter-list" aria-label="タグ一覧"></div>
+      </section>
     </aside>
+
+    <div id="folderFileSplitter" class="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="フォルダーとメディアファイルの幅を変更" tabindex="0"></div>
 
     <section class="file-pane">
       <div class="pane-title"><span>メディアファイル</span><span id="fileCount" class="count">0件</span></div>
@@ -25,45 +41,71 @@
       <div id="fileEmpty" class="empty-state">左のツリーからフォルダを選択してください</div>
     </section>
 
+    <div id="filePreviewSplitter" class="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="メディアファイルとプレビューの幅を変更" tabindex="0"></div>
+
     <section class="preview-pane">
       <div class="preview-toolbar">
-        <div>
+        <div class="preview-heading">
           <div class="pane-title no-border">プレビュー</div>
           <div id="selectedName" class="selected-name">ファイル未選択</div>
+          <div id="selectedFileTags" class="selected-file-tags hidden" aria-label="選択ファイルのタグ"></div>
         </div>
         <label id="intervalControl" class="interval-control hidden">
           <span>サムネイル間隔</span>
           <select id="intervalSelect">
-            <option value="10">10秒</option>
-            <option value="20">20秒</option>
-            <option value="30" selected>30秒</option>
-            <option value="60">1分</option>
-            <option value="600">10分</option>
-            <option value="1800">30分</option>
+            <option value="10">10秒</option><option value="20">20秒</option><option value="30" selected>30秒</option>
+            <option value="60">1分</option><option value="600">10分</option><option value="1800">30分</option>
           </select>
         </label>
       </div>
-      <div id="previewContent" class="preview-content">
-        <div class="preview-placeholder">画像または動画をクリックすると<br>ここに表示されます</div>
-      </div>
+      <div id="previewContent" class="preview-content"><div class="preview-placeholder">画像または動画をクリックすると<br>ここに表示されます</div></div>
     </section>
   </main>
+
+  <div id="fileContextMenu" class="context-menu hidden" role="menu">
+    <button id="editTagsMenuItem" type="button" role="menuitem">タグを追加・削除...</button>
+  </div>
+
+  <div id="tagEditDialog" class="network-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="tagEditDialogTitle">
+    <div class="network-dialog-card tag-edit-card">
+      <div id="tagEditDialogTitle" class="network-dialog-title">タグを追加・削除</div>
+      <div id="tagEditTargetSummary" class="tag-edit-summary"></div>
+      <label class="network-dialog-label" for="tagEditNewTags">タグを追加（カンマ区切り）</label>
+      <input id="tagEditNewTags" class="network-dialog-input" type="text" placeholder="旅行, 九州, 2026" maxlength="512" spellcheck="false">
+      <div class="network-dialog-label tag-existing-label">既存のタグ</div>
+      <div id="tagEditExistingTags" class="tag-edit-existing"></div>
+      <div id="tagEditError" class="network-dialog-error hidden"></div>
+      <div class="network-dialog-actions">
+        <button id="tagEditCancel" type="button">キャンセル</button>
+        <button id="tagEditSave" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tagDeleteConfirmDialog" class="network-dialog tag-delete-confirm-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="tagDeleteConfirmTitle">
+    <div class="network-dialog-card tag-delete-confirm-card">
+      <div id="tagDeleteConfirmTitle" class="network-dialog-title">タグを削除</div>
+      <div id="tagDeleteConfirmMessage" class="tag-delete-confirm-message"></div>
+      <div id="tagDeleteConfirmError" class="network-dialog-error hidden"></div>
+      <div class="network-dialog-actions">
+        <button id="tagDeleteNo" type="button">しない</button>
+        <button id="tagDeleteYes" type="button">する</button>
+      </div>
+    </div>
+  </div>
+
   <div id="networkRootDialog" class="network-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="networkRootDialogTitle">
     <div class="network-dialog-card">
       <div id="networkRootDialogTitle" class="network-dialog-title">UNCパスを追加</div>
       <label class="network-dialog-label" for="networkRootInput">UNCパス</label>
       <input id="networkRootInput" class="network-dialog-input" type="text" placeholder="\\\\server\\share" spellcheck="false">
       <div id="networkRootError" class="network-dialog-error hidden"></div>
-      <div class="network-dialog-actions">
-        <button id="networkRootCancel" type="button">キャンセル</button>
-        <button id="networkRootSubmit" type="button">追加</button>
-      </div>
+      <div class="network-dialog-actions"><button id="networkRootCancel" type="button">キャンセル</button><button id="networkRootSubmit" type="button">追加</button></div>
     </div>
   </div>
   <div id="imageViewer" class="image-viewer hidden" role="dialog" aria-modal="true" aria-label="全画面画像ビューア">
     <button id="imageViewerClose" class="image-viewer-close" type="button" aria-label="閉じる">×</button>
-    <img id="imageViewerImage" alt="">
-    <div id="imageViewerName" class="image-viewer-name"></div>
+    <img id="imageViewerImage" alt=""><div id="imageViewerName" class="image-viewer-name"></div>
   </div>
   <script src="app.js"></script>
 </body>

@@ -17,11 +17,44 @@ const networkRootInput = document.querySelector('#networkRootInput');
 const networkRootError = document.querySelector('#networkRootError');
 const networkRootCancel = document.querySelector('#networkRootCancel');
 const networkRootSubmit = document.querySelector('#networkRootSubmit');
+const tagFilterList = document.querySelector('#tagFilterList');
+const tagSearchInput = document.querySelector('#tagSearchInput');
+const tagFilterClear = document.querySelector('#tagFilterClear');
+const selectedFileTags = document.querySelector('#selectedFileTags');
+const workspace = document.querySelector('.workspace');
+const folderPane = document.querySelector('.folder-pane');
+const filePane = document.querySelector('.file-pane');
+const previewPane = document.querySelector('.preview-pane');
+const folderFileSplitter = document.querySelector('#folderFileSplitter');
+const filePreviewSplitter = document.querySelector('#filePreviewSplitter');
+const folderSection = document.querySelector('#folderSection');
+const folderTagSplitter = document.querySelector('#folderTagSplitter');
+const fileContextMenu = document.querySelector('#fileContextMenu');
+const editTagsMenuItem = document.querySelector('#editTagsMenuItem');
+const tagEditDialog = document.querySelector('#tagEditDialog');
+const tagEditTargetSummary = document.querySelector('#tagEditTargetSummary');
+const tagEditNewTags = document.querySelector('#tagEditNewTags');
+const tagEditExistingTags = document.querySelector('#tagEditExistingTags');
+const tagEditError = document.querySelector('#tagEditError');
+const tagEditCancel = document.querySelector('#tagEditCancel');
+const tagEditSave = document.querySelector('#tagEditSave');
+const tagDeleteConfirmDialog = document.querySelector('#tagDeleteConfirmDialog');
+const tagDeleteConfirmMessage = document.querySelector('#tagDeleteConfirmMessage');
+const tagDeleteConfirmError = document.querySelector('#tagDeleteConfirmError');
+const tagDeleteNo = document.querySelector('#tagDeleteNo');
+const tagDeleteYes = document.querySelector('#tagDeleteYes');
 
 let selectedTreeRow = null;
 let selectedFileRow = null;
 let selectedFile = null;
+const selectedFilePaths = new Set();
+let selectionAnchorPath = null;
+let contextMenuFile = null;
+let tagMatchMode = 'and';
 let currentFolderFiles = [];
+let allTags = [];
+let tagsByPath = {};
+const activeTagIds = new Set();
 let imageViewerFile = null;
 let generationToken = 0;
 let activePreviewThumbnailJobId = null;
@@ -33,6 +66,12 @@ const thumbnailQueue = [];
 const MAX_THUMBNAIL_JOBS = 2;
 const LAST_FOLDER_STORAGE_KEY = 'media-thumbnail-explorer:last-folder';
 const VIDEO_AUDIO_STORAGE_KEY = 'media-thumbnail-explorer:video-audio';
+const FOLDER_TAG_SPLIT_STORAGE_KEY = 'media-thumbnail-explorer:folder-tag-split-ratio';
+const WORKSPACE_SPLIT_STORAGE_KEY = 'media-thumbnail-explorer:workspace-split-ratios';
+const WORKSPACE_SPLITTER_WIDTH = 7;
+const MIN_FOLDER_PANE_WIDTH = 210;
+const MIN_FILE_PANE_WIDTH = 260;
+const MIN_PREVIEW_PANE_WIDTH = 300;
 const initialVideoAudio = loadVideoAudioPreference();
 let videoVolume = initialVideoAudio.volume;
 let videoMuted = initialVideoAudio.muted;
@@ -58,6 +97,77 @@ function saveVideoAudioPreference() {
     }));
   } catch {
     // Keep the in-memory preference even if persistent storage is unavailable.
+  }
+}
+
+function clampFolderSectionHeight(height) {
+  const paneHeight = folderPane.getBoundingClientRect().height;
+  const min = 120;
+  const max = Math.max(min, paneHeight - 140);
+  return Math.max(min, Math.min(max, height));
+}
+
+function saveFolderTagSplitRatio() {
+  try {
+    const paneHeight = folderPane.getBoundingClientRect().height;
+    if (paneHeight <= 0) return;
+    const ratio = folderSection.getBoundingClientRect().height / paneHeight;
+    localStorage.setItem(FOLDER_TAG_SPLIT_STORAGE_KEY, String(ratio));
+  } catch {
+    // Keep the current layout even if persistent storage is unavailable.
+  }
+}
+
+function restoreFolderTagSplitRatio() {
+  try {
+    const ratio = Number(localStorage.getItem(FOLDER_TAG_SPLIT_STORAGE_KEY));
+    const paneHeight = folderPane.getBoundingClientRect().height;
+    if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1 || paneHeight <= 0) return;
+    folderSection.style.flexBasis = `${clampFolderSectionHeight(paneHeight * ratio)}px`;
+  } catch {
+    // Fall back to the CSS default split.
+  }
+}
+
+function clampWorkspaceWidths(folderWidth, fileWidth) {
+  const total = workspace.getBoundingClientRect().width;
+  const available = Math.max(0, total - WORKSPACE_SPLITTER_WIDTH * 2);
+  if (available < MIN_FOLDER_PANE_WIDTH + MIN_FILE_PANE_WIDTH + MIN_PREVIEW_PANE_WIDTH) {
+    return { folderWidth: Math.max(0, folderWidth), fileWidth: Math.max(0, fileWidth) };
+  }
+  const maxFolder = available - MIN_FILE_PANE_WIDTH - MIN_PREVIEW_PANE_WIDTH;
+  const nextFolder = Math.max(MIN_FOLDER_PANE_WIDTH, Math.min(maxFolder, folderWidth));
+  const maxFile = available - nextFolder - MIN_PREVIEW_PANE_WIDTH;
+  const nextFile = Math.max(MIN_FILE_PANE_WIDTH, Math.min(maxFile, fileWidth));
+  return { folderWidth: nextFolder, fileWidth: nextFile };
+}
+
+function applyWorkspaceWidths(folderWidth, fileWidth) {
+  const next = clampWorkspaceWidths(folderWidth, fileWidth);
+  workspace.style.gridTemplateColumns = `${next.folderWidth}px ${WORKSPACE_SPLITTER_WIDTH}px ${next.fileWidth}px ${WORKSPACE_SPLITTER_WIDTH}px minmax(${MIN_PREVIEW_PANE_WIDTH}px, 1fr)`;
+}
+
+function saveWorkspaceSplitRatios() {
+  try {
+    const total = workspace.getBoundingClientRect().width;
+    if (total <= 0) return;
+    localStorage.setItem(WORKSPACE_SPLIT_STORAGE_KEY, JSON.stringify({
+      folder: folderPane.getBoundingClientRect().width / total,
+      file: filePane.getBoundingClientRect().width / total
+    }));
+  } catch {
+    // Keep the current layout even if persistent storage is unavailable.
+  }
+}
+
+function restoreWorkspaceSplitRatios() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(WORKSPACE_SPLIT_STORAGE_KEY));
+    const total = workspace.getBoundingClientRect().width;
+    if (!Number.isFinite(stored?.folder) || !Number.isFinite(stored?.file) || total <= 0) return;
+    applyWorkspaceWidths(total * stored.folder, total * stored.file);
+  } catch {
+    // Fall back to the CSS default split.
   }
 }
 
@@ -189,13 +299,17 @@ function setThumbnailImage(container, src, file) {
     container.classList.remove('loading');
   }, { once: true });
   image.addEventListener('error', () => {
+    const badge = container.querySelector('.file-tag-badge');
     container.replaceChildren(createThumbnailPlaceholder(file));
+    if (badge) container.append(badge);
     container.classList.remove('loading');
   }, { once: true });
 
   // Put the image in the document before assigning src. This avoids relying on
   // detached-image loading semantics and keeps the loading state visible.
+  const badge = container.querySelector('.file-tag-badge');
   container.replaceChildren(image);
+  if (badge) container.append(badge);
   image.src = src;
 }
 
@@ -419,6 +533,439 @@ async function restoreRememberedFolder() {
   currentNode._row?.scrollIntoView({ block: 'nearest' });
 }
 
+
+function getFileTags(filePath) {
+  const direct = tagsByPath[filePath];
+  if (direct) return direct;
+  const normalized = filePath.toLowerCase();
+  const key = Object.keys(tagsByPath).find((candidate) => candidate.toLowerCase() === normalized);
+  return key ? tagsByPath[key] : [];
+}
+
+function fileMatchesActiveTags(file) {
+  if (!activeTagIds.size) return true;
+  const fileTagIds = new Set(getFileTags(file.path).map((tag) => tag.id));
+  const selectedIds = [...activeTagIds];
+  return tagMatchMode === 'or'
+    ? selectedIds.some((tagId) => fileTagIds.has(tagId))
+    : selectedIds.every((tagId) => fileTagIds.has(tagId));
+}
+
+function getVisibleFiles() {
+  return currentFolderFiles.filter(fileMatchesActiveTags);
+}
+
+function renderCurrentFolderFiles() {
+  const thumbnailToken = ++thumbnailLoadToken;
+  thumbnailQueue.length = 0;
+  for (const jobId of activeListThumbnailJobIds) window.mediaExplorer.cancelListThumbnail(jobId).catch(() => {});
+  fileList.replaceChildren();
+  const visibleFiles = getVisibleFiles();
+  fileCount.textContent = activeTagIds.size ? `${visibleFiles.length}/${currentFolderFiles.length}件` : `${visibleFiles.length}件`;
+  fileEmpty.textContent = visibleFiles.length ? '' : (currentFolderFiles.length ? '選択したタグに一致するファイルはありません' : 'このフォルダに対応する画像・動画はありません');
+  visibleFiles.forEach((file) => fileList.append(createFileRow(file, thumbnailToken)));
+}
+
+function renderTagFilters() {
+  tagFilterList.replaceChildren();
+  const query = tagSearchInput.value.trim().toLocaleLowerCase('ja');
+  const visibleTags = allTags.filter((tag) => !query || tag.name.toLocaleLowerCase('ja').includes(query));
+  if (!visibleTags.length) {
+    const empty = document.createElement('span');
+    empty.className = 'tag-empty';
+    empty.textContent = allTags.length ? '一致するタグなし' : 'タグなし';
+    tagFilterList.append(empty);
+    return;
+  }
+  for (const tag of visibleTags) {
+    const label = document.createElement('label');
+    label.className = 'tag-filter-item';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = activeTagIds.has(tag.id);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) activeTagIds.add(tag.id); else activeTagIds.delete(tag.id);
+      renderCurrentFolderFiles();
+    });
+    const text = document.createElement('span');
+    text.textContent = tag.name;
+    label.append(checkbox, text);
+    tagFilterList.append(label);
+  }
+}
+
+function renderSelectedFileTags() {
+  selectedFileTags.replaceChildren();
+  if (!selectedFile) {
+    selectedFileTags.classList.add('hidden');
+    return;
+  }
+  const tags = getFileTags(selectedFile.path);
+  if (!tags.length) {
+    selectedFileTags.classList.add('hidden');
+    return;
+  }
+  selectedFileTags.classList.remove('hidden');
+  const icon = document.createElement('span');
+  icon.className = 'preview-tag-icon';
+  icon.textContent = '🏷';
+  selectedFileTags.append(icon);
+  const more = document.createElement('span');
+  more.className = 'preview-tag-more hidden';
+  selectedFileTags.append(more);
+  const chips = tags.map((tag) => {
+    const chip = document.createElement('span');
+    chip.className = 'preview-tag-name';
+    chip.textContent = tag.name;
+    chip.title = tag.name;
+    selectedFileTags.insertBefore(chip, more);
+    return chip;
+  });
+  requestAnimationFrame(() => {
+    chips.forEach((chip) => chip.classList.remove('hidden'));
+    more.classList.add('hidden');
+    let hiddenCount = 0;
+    while (selectedFileTags.scrollWidth > selectedFileTags.clientWidth && chips.length - hiddenCount > 0) {
+      hiddenCount += 1;
+      chips[chips.length - hiddenCount].classList.add('hidden');
+      more.textContent = `ほか${hiddenCount}個`;
+      more.classList.remove('hidden');
+    }
+    more.title = hiddenCount ? tags.slice(tags.length - hiddenCount).map((tag) => tag.name).join('\n') : '';
+  });
+}
+
+async function refreshTagAssignments() {
+  tagsByPath = currentFolderFiles.length ? await window.mediaExplorer.getTagsForPaths(currentFolderFiles.map((file) => file.path)) : {};
+  renderCurrentFolderFiles();
+  renderSelectedFileTags();
+}
+
+async function refreshTags() {
+  allTags = await window.mediaExplorer.getTags();
+  const validIds = new Set(allTags.map((tag) => tag.id));
+  for (const tagId of [...activeTagIds]) if (!validIds.has(tagId)) activeTagIds.delete(tagId);
+  renderTagFilters();
+  renderSelectedFileTags();
+}
+
+tagSearchInput.addEventListener('input', renderTagFilters);
+tagFilterClear.addEventListener('click', () => {
+  activeTagIds.clear();
+  renderTagFilters();
+  renderCurrentFolderFiles();
+});
+document.querySelectorAll('input[name="tagMatchMode"]').forEach((radio) => {
+  radio.addEventListener('change', () => {
+    if (!radio.checked) return;
+    tagMatchMode = radio.value === 'or' ? 'or' : 'and';
+    renderCurrentFolderFiles();
+  });
+});
+
+function updateFileSelectionUi() {
+  for (const row of fileList.querySelectorAll('.file-row')) row.classList.toggle('selected', selectedFilePaths.has(row.dataset.path));
+}
+
+function selectFileFromRow(file, row, event) {
+  const visibleFiles = getVisibleFiles();
+  if (event.shiftKey && selectionAnchorPath) {
+    const anchorIndex = visibleFiles.findIndex((item) => item.path === selectionAnchorPath);
+    const currentIndex = visibleFiles.findIndex((item) => item.path === file.path);
+    if (anchorIndex >= 0 && currentIndex >= 0) {
+      if (!event.ctrlKey) selectedFilePaths.clear();
+      const [start, end] = anchorIndex < currentIndex ? [anchorIndex, currentIndex] : [currentIndex, anchorIndex];
+      visibleFiles.slice(start, end + 1).forEach((item) => selectedFilePaths.add(item.path));
+    }
+  } else if (event.ctrlKey) {
+    if (selectedFilePaths.has(file.path)) selectedFilePaths.delete(file.path); else selectedFilePaths.add(file.path);
+    selectionAnchorPath = file.path;
+  } else {
+    selectedFilePaths.clear();
+    selectedFilePaths.add(file.path);
+    selectionAnchorPath = file.path;
+  }
+  if (!selectedFilePaths.size) {
+    selectedFileRow = null;
+    clearPreview();
+  } else {
+    const previewFile = selectedFilePaths.has(file.path)
+      ? file
+      : currentFolderFiles.find((item) => selectedFilePaths.has(item.path));
+    selectedFileRow = previewFile?.path === file.path ? row : null;
+    if (previewFile) selectFile(previewFile);
+  }
+  updateFileSelectionUi();
+}
+
+function getSelectedFilesForContext(file) {
+  if (!selectedFilePaths.has(file.path)) {
+    selectedFilePaths.clear();
+    selectedFilePaths.add(file.path);
+    selectionAnchorPath = file.path;
+    selectFile(file);
+    updateFileSelectionUi();
+  }
+  return currentFolderFiles.filter((item) => selectedFilePaths.has(item.path));
+}
+
+function closeContextMenu() { fileContextMenu.classList.add('hidden'); }
+function openContextMenu(file, x, y) {
+  contextMenuFile = file;
+  fileContextMenu.classList.remove('hidden');
+  const rect = fileContextMenu.getBoundingClientRect();
+  fileContextMenu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 4))}px`;
+  fileContextMenu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 4))}px`;
+  editTagsMenuItem.focus();
+}
+
+document.addEventListener('click', (event) => { if (!fileContextMenu.contains(event.target)) closeContextMenu(); });
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeContextMenu(); });
+
+function tagAssignmentCounts(files) {
+  const counts = new Map(allTags.map((tag) => [tag.id, 0]));
+  for (const file of files) for (const tag of getFileTags(file.path)) counts.set(tag.id, (counts.get(tag.id) || 0) + 1);
+  return counts;
+}
+
+function openTagDeleteConfirm(tag, row) {
+  tagDeleteConfirmDialog._tag = tag;
+  tagDeleteConfirmDialog._row = row;
+  tagDeleteConfirmMessage.textContent = `タグ「${tag.name}」を削除しますか？`;
+  tagDeleteConfirmError.textContent = '';
+  tagDeleteConfirmError.classList.add('hidden');
+  tagDeleteConfirmDialog.classList.remove('hidden');
+  tagDeleteNo.focus();
+}
+
+function closeTagDeleteConfirm() {
+  tagDeleteConfirmDialog.classList.add('hidden');
+  tagDeleteConfirmDialog._tag = null;
+  tagDeleteConfirmDialog._row = null;
+  if (!tagEditDialog.classList.contains('hidden')) tagEditNewTags.focus();
+}
+
+function createTagDeleteButton(tag, row) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'tag-delete-button';
+  button.setAttribute('aria-label', `タグ「${tag.name}」を削除`);
+  button.title = `タグ「${tag.name}」を削除`;
+  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg>';
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openTagDeleteConfirm(tag, row);
+  });
+  return button;
+}
+
+function appendEmptyExistingTagMessageIfNeeded() {
+  if (tagEditExistingTags.querySelector('.tag-edit-item')) return;
+  const empty = document.createElement('span');
+  empty.className = 'tag-empty';
+  empty.textContent = '既存タグなし';
+  tagEditExistingTags.append(empty);
+}
+
+function openTagEditDialog(files) {
+  const counts = tagAssignmentCounts(files);
+  tagEditTargetSummary.textContent = files.length === 1 ? files[0].name : `${files.length}ファイルを選択中`;
+  tagEditNewTags.value = '';
+  tagEditExistingTags.replaceChildren();
+  tagEditError.classList.add('hidden');
+  tagEditError.textContent = '';
+  for (const tag of allTags) {
+    const row = document.createElement('div');
+    row.className = 'tag-edit-item';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    const count = counts.get(tag.id) || 0;
+    checkbox.checked = count === files.length;
+    checkbox.indeterminate = count > 0 && count < files.length;
+    checkbox.dataset.tagId = String(tag.id);
+    checkbox.dataset.initial = count === files.length ? 'checked' : count === 0 ? 'unchecked' : 'mixed';
+    checkbox.dataset.touched = 'false';
+    checkbox.addEventListener('change', () => { checkbox.indeterminate = false; checkbox.dataset.touched = 'true'; });
+    const text = document.createElement('label');
+    text.className = 'tag-edit-name';
+    text.textContent = tag.name;
+    const checkboxId = `tag-edit-${tag.id}`;
+    checkbox.id = checkboxId;
+    text.htmlFor = checkboxId;
+    const countText = document.createElement('span');
+    countText.className = 'tag-edit-count';
+    countText.textContent = files.length > 1 && count > 0 && count < files.length ? `${count}/${files.length}` : '';
+    row.append(checkbox, text, countText, createTagDeleteButton(tag, row));
+    tagEditExistingTags.append(row);
+  }
+  appendEmptyExistingTagMessageIfNeeded();
+  tagEditDialog._files = files;
+  tagEditDialog.classList.remove('hidden');
+  tagEditNewTags.focus();
+}
+
+function closeTagEditDialog() {
+  if (!tagDeleteConfirmDialog.classList.contains('hidden')) return;
+  tagEditDialog.classList.add('hidden');
+  tagEditDialog._files = null;
+}
+
+editTagsMenuItem.addEventListener('click', () => {
+  closeContextMenu();
+  if (!contextMenuFile) return;
+  openTagEditDialog(getSelectedFilesForContext(contextMenuFile));
+});
+tagEditCancel.addEventListener('click', closeTagEditDialog);
+tagEditDialog.addEventListener('pointerdown', (event) => {
+  if (event.target !== tagEditDialog || !tagDeleteConfirmDialog.classList.contains('hidden')) return;
+  event.preventDefault();
+  tagEditNewTags.focus({ preventScroll: true });
+});
+tagEditDialog.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && tagDeleteConfirmDialog.classList.contains('hidden')) closeTagEditDialog();
+});
+
+tagDeleteNo.addEventListener('click', closeTagDeleteConfirm);
+tagDeleteConfirmDialog.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeTagDeleteConfirm();
+  }
+});
+tagDeleteYes.addEventListener('click', async () => {
+  const tag = tagDeleteConfirmDialog._tag;
+  const row = tagDeleteConfirmDialog._row;
+  if (!tag) return;
+  tagDeleteYes.disabled = true;
+  tagDeleteNo.disabled = true;
+  try {
+    await window.mediaExplorer.deleteTag(tag.id);
+    row?.remove();
+    appendEmptyExistingTagMessageIfNeeded();
+    await refreshTags();
+    await refreshTagAssignments();
+    closeTagDeleteConfirm();
+  } catch (error) {
+    tagDeleteConfirmError.textContent = `タグを削除できませんでした。 ${error.message}`;
+    tagDeleteConfirmError.classList.remove('hidden');
+  } finally {
+    tagDeleteYes.disabled = false;
+    tagDeleteNo.disabled = false;
+  }
+});
+
+async function saveTagEdits() {
+  const files = tagEditDialog._files || [];
+  if (!files.length || tagEditSave.disabled) return;
+  const newTagNames = tagEditNewTags.value.split(/[,、]/).map((name) => name.trim()).filter(Boolean);
+  const addTagIds = [];
+  const removeTagIds = [];
+  for (const checkbox of tagEditExistingTags.querySelectorAll('input[type="checkbox"]')) {
+    const tagId = Number(checkbox.dataset.tagId);
+    if (!Number.isSafeInteger(tagId) || tagId <= 0) continue;
+    const initial = checkbox.dataset.initial;
+    const touched = checkbox.dataset.touched === 'true';
+    if (initial === 'mixed' && !touched) continue;
+    if (checkbox.checked) addTagIds.push(tagId); else removeTagIds.push(tagId);
+  }
+  tagEditSave.disabled = true;
+  tagEditCancel.disabled = true;
+  try {
+    await window.mediaExplorer.updateTagsForFiles(files, { addTagIds, removeTagIds, newTagNames });
+    await refreshTags();
+    await refreshTagAssignments();
+    closeTagEditDialog();
+  } catch (error) {
+    tagEditError.textContent = `タグを更新できませんでした。 ${error.message}`;
+    tagEditError.classList.remove('hidden');
+  } finally {
+    tagEditSave.disabled = false;
+    tagEditCancel.disabled = false;
+  }
+}
+
+tagEditSave.addEventListener('click', saveTagEdits);
+tagEditNewTags.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  saveTagEdits();
+});
+
+let workspaceSplitterDrag = null;
+function startWorkspaceSplitterDrag(kind, splitter, event) {
+  workspaceSplitterDrag = {
+    kind,
+    splitter,
+    startX: event.clientX,
+    folderWidth: folderPane.getBoundingClientRect().width,
+    fileWidth: filePane.getBoundingClientRect().width
+  };
+  splitter.classList.add('dragging');
+  splitter.setPointerCapture(event.pointerId);
+  event.preventDefault();
+}
+function moveWorkspaceSplitter(event) {
+  if (!workspaceSplitterDrag) return;
+  const delta = event.clientX - workspaceSplitterDrag.startX;
+  if (workspaceSplitterDrag.kind === 'folder-file') {
+    applyWorkspaceWidths(workspaceSplitterDrag.folderWidth + delta, workspaceSplitterDrag.fileWidth);
+  } else {
+    applyWorkspaceWidths(workspaceSplitterDrag.folderWidth, workspaceSplitterDrag.fileWidth + delta);
+  }
+}
+function finishWorkspaceSplitterDrag() {
+  if (!workspaceSplitterDrag) return;
+  workspaceSplitterDrag.splitter.classList.remove('dragging');
+  workspaceSplitterDrag = null;
+  saveWorkspaceSplitRatios();
+}
+function resizeWorkspaceWithKeyboard(kind, delta) {
+  const folderWidth = folderPane.getBoundingClientRect().width;
+  const fileWidth = filePane.getBoundingClientRect().width;
+  if (kind === 'folder-file') applyWorkspaceWidths(folderWidth + delta, fileWidth);
+  else applyWorkspaceWidths(folderWidth, fileWidth + delta);
+  saveWorkspaceSplitRatios();
+}
+folderFileSplitter.addEventListener('pointerdown', (event) => startWorkspaceSplitterDrag('folder-file', folderFileSplitter, event));
+filePreviewSplitter.addEventListener('pointerdown', (event) => startWorkspaceSplitterDrag('file-preview', filePreviewSplitter, event));
+for (const splitter of [folderFileSplitter, filePreviewSplitter]) {
+  splitter.addEventListener('pointermove', moveWorkspaceSplitter);
+  splitter.addEventListener('pointerup', finishWorkspaceSplitterDrag);
+  splitter.addEventListener('pointercancel', finishWorkspaceSplitterDrag);
+  splitter.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    resizeWorkspaceWithKeyboard(splitter === folderFileSplitter ? 'folder-file' : 'file-preview', event.key === 'ArrowLeft' ? -20 : 20);
+  });
+}
+
+let splitterDrag = null;
+folderTagSplitter.addEventListener('pointerdown', (event) => {
+  splitterDrag = { startY: event.clientY, startHeight: folderSection.getBoundingClientRect().height };
+  folderTagSplitter.setPointerCapture(event.pointerId);
+});
+folderTagSplitter.addEventListener('pointermove', (event) => {
+  if (!splitterDrag) return;
+  const next = clampFolderSectionHeight(splitterDrag.startHeight + event.clientY - splitterDrag.startY);
+  folderSection.style.flexBasis = `${next}px`;
+});
+function finishSplitterDrag() {
+  if (!splitterDrag) return;
+  splitterDrag = null;
+  saveFolderTagSplitRatio();
+}
+folderTagSplitter.addEventListener('pointerup', finishSplitterDrag);
+folderTagSplitter.addEventListener('pointercancel', finishSplitterDrag);
+folderTagSplitter.addEventListener('keydown', (event) => {
+  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+  event.preventDefault();
+  const delta = event.key === 'ArrowUp' ? -20 : 20;
+  const next = clampFolderSectionHeight(folderSection.getBoundingClientRect().height + delta);
+  folderSection.style.flexBasis = `${next}px`;
+  saveFolderTagSplitRatio();
+});
+
 async function selectFolder(folderPath, row, { silent = false } = {}) {
   const thumbnailToken = ++thumbnailLoadToken;
   thumbnailQueue.length = 0;
@@ -433,15 +980,17 @@ async function selectFolder(folderPath, row, { silent = false } = {}) {
     selectedTreeRow = row;
     row?.classList.add('selected');
     selectedFileRow = null;
+    selectedFilePaths.clear();
+    selectionAnchorPath = null;
     currentPath.value = folderPath;
     currentPath.title = folderPath;
     rememberFolder(folderPath);
-    fileList.replaceChildren();
     currentFolderFiles = files;
-    fileCount.textContent = `${files.length}件`;
-    fileEmpty.textContent = files.length ? '' : 'このフォルダに対応する画像・動画はありません';
+    tagsByPath = files.length
+      ? await window.mediaExplorer.getTagsForPaths(files.map((file) => file.path))
+      : {};
     clearPreview();
-    files.forEach((file) => fileList.append(createFileRow(file, thumbnailToken)));
+    renderCurrentFolderFiles();
     return true;
   } catch (error) {
     if (thumbnailToken === thumbnailLoadToken) {
@@ -524,11 +1073,21 @@ async function navigateFromAddressBar() {
 function createFileRow(file, thumbnailToken) {
   const row = document.createElement('div');
   row.className = 'file-row';
+  row.dataset.path = file.path;
   row.title = file.path;
+  if (selectedFilePaths.has(file.path)) row.classList.add('selected');
 
   const thumbnail = document.createElement('div');
   thumbnail.className = 'file-thumbnail';
   thumbnail.append(createThumbnailPlaceholder(file));
+  const tags = getFileTags(file.path);
+  if (tags.length) {
+    const badge = document.createElement('span');
+    badge.className = 'file-tag-badge';
+    badge.textContent = `🏷 ${tags.length}`;
+    badge.title = tags.map((tag) => tag.name).join('\n');
+    thumbnail.append(badge);
+  }
 
   const details = document.createElement('div');
   details.className = 'file-details';
@@ -537,21 +1096,25 @@ function createFileRow(file, thumbnailToken) {
   name.textContent = file.name;
   const meta = document.createElement('div');
   meta.className = 'file-meta';
-  meta.textContent = `${file.type === 'image' ? '画像' : '動画'} · ${formatBytes(file.size)}`;
+  const tagSummary = tags.length ? tags.map((tag) => tag.name).join(', ') : '—';
+  meta.textContent = `${file.type === 'image' ? '画像' : '動画'} · ${formatBytes(file.size)} · ${tagSummary}`;
+  meta.title = tags.length ? tags.map((tag) => tag.name).join('\n') : '';
   details.append(name, meta);
+
   row.append(thumbnail, details);
   loadFileThumbnail(file, thumbnail, thumbnailToken);
 
-  row.addEventListener('click', () => {
-    if (selectedFileRow) selectedFileRow.classList.remove('selected');
-    selectedFileRow = row;
-    row.classList.add('selected');
-    selectFile(file);
+  row.addEventListener('click', (event) => selectFileFromRow(file, row, event));
+  row.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    getSelectedFilesForContext(file);
+    openContextMenu(file, event.clientX, event.clientY);
   });
   if (file.type === 'video') {
     row.addEventListener('dblclick', async () => {
       const result = await window.mediaExplorer.openVideo(file.path);
-      if (!result.ok) alert(`既定のアプリで動画を開けませんでした。\n${result.error}`);
+      if (!result.ok) alert(`既定のアプリで動画を開けませんでした。
+${result.error}`);
     });
   } else {
     row.addEventListener('dblclick', () => openImageViewer(file));
@@ -571,6 +1134,7 @@ function clearPreview() {
   cancelActivePreviewThumbnailJob();
   selectedFile = null;
   selectedName.textContent = 'ファイル未選択';
+  renderSelectedFileTags();
   intervalControl.classList.add('hidden');
   previewContent.innerHTML = '<div class="preview-placeholder">画像または動画をクリックすると<br>ここに表示されます</div>';
 }
@@ -580,6 +1144,7 @@ function selectFile(file) {
   cancelActivePreviewThumbnailJob();
   selectedFile = file;
   selectedName.textContent = file.name;
+  renderSelectedFileTags();
   selectedName.title = file.path;
   previewContent.replaceChildren();
   if (file.type === 'image') {
@@ -780,6 +1345,9 @@ networkRootDialog.addEventListener('click', (event) => {
 
 async function initialize() {
   try {
+    restoreFolderTagSplitRatio();
+    restoreWorkspaceSplitRatios();
+    await refreshTags();
     const roots = await reloadRoots();
     if (!roots.length) return;
     await restoreRememberedFolder();

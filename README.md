@@ -30,6 +30,12 @@ tree, media list, and preview in a single interface.
 -   Terminates running FFmpeg / FFprobe child processes when the
     application exits
 -   Uses a custom application icon
+-   Stores persistent file tags in local SQLite metadata without modifying the
+    media files
+-   Supports single-file and multi-file tag editing from the media-list context
+    menu
+-   Filters the current media list by multiple tags with AND / OR matching
+-   Persists the folder/tag split and main workspace pane-width ratios
 
 ------------------------------------------------------------------------
 
@@ -186,12 +192,12 @@ causes, and the fixes that followed.
 Latest release:
 
 ``` text
-v0.4.1
+v0.5.0
 ```
 
-v0.4.1 is a maintenance release that restores the missing v0.4.0
-version-specific development record and introduces a mechanical Release
-Gate. It does not change application features or UI behavior.
+v0.5.0 adds persistent file tagging, bulk tag editing, AND / OR tag filtering,
+and persistent adjustable pane splitters. Tag metadata is stored separately
+from the media files.
 
 See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
