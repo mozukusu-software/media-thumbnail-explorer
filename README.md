@@ -22,7 +22,8 @@ tree, media list, and preview in a single interface.
 -   Supports previous/next image navigation with `Left Arrow` /
     `Right Arrow` in the fullscreen viewer
 -   Opens videos with the OS default application on double-click
--   Converts TIFF and other Sharp-decodable image formats to PNG for display
+-   Converts TIFF and other Sharp-decodable image formats to PNG for
+    display
 -   Restores window size, position, and maximized state on the next
     launch
 -   Restores the last opened folder on the next launch
@@ -42,11 +43,11 @@ Recognized image extensions:
 `bmp` / `webp` / `avif` / `svg` / `ico` / `tif` / `tiff` / `heic` /
 `heif` / `jxl`
 
-Actual decoding support depends on the image codecs available to Sharp/libvips.
-The standard Sharp prebuilt binaries support JPEG, PNG, Ultra HDR, WebP, AVIF,
-TIFF, GIF, and SVG input. HEIC/HEIF using HEVC and JPEG XL (JXL) require
-additional libvips codec support and therefore are not guaranteed by a standard
-`npm install`.
+Actual decoding support depends on the image codecs available to
+Sharp/libvips. The standard Sharp prebuilt binaries support JPEG, PNG,
+Ultra HDR, WebP, AVIF, TIFF, GIF, and SVG input. HEIC/HEIF using HEVC
+and JPEG XL (JXL) require additional libvips codec support and therefore
+are not guaranteed by a standard `npm install`.
 
 ### Videos
 
@@ -61,20 +62,24 @@ additional libvips codec support and therefore are not guaranteed by a standard
 -   npm (installed with Node.js)
 -   An environment capable of running Electron
 
-Electron 44 is published only for 64-bit platforms. Electron's current Windows
-build prerequisites require Windows 10 or later and Node.js 22.12.0 or later.
+Electron 44 is published only for 64-bit platforms. Electron's current
+Windows build prerequisites require Windows 10 or later and Node.js
+22.12.0 or later.
 
-FFmpeg and FFprobe are optional external requirements for video-thumbnail generation.
-They are not bundled with Media Thumbnail Explorer. The application remains usable
-without them, but video thumbnails cannot be generated.
+FFmpeg and FFprobe are optional external requirements for
+video-thumbnail generation. They are not bundled with Media Thumbnail
+Explorer. The application remains usable without them, but video
+thumbnails cannot be generated.
 
 The application resolves each executable as follows:
 
-1.  If `FFMPEG_PATH` / `FFPROBE_PATH` is set, that configured value is used.
+1.  If `FFMPEG_PATH` / `FFPROBE_PATH` is set, that configured value is
+    used.
 2.  Otherwise, `ffmpeg` / `ffprobe` is resolved from `PATH`.
 
-An invalid `FFMPEG_PATH` or `FFPROBE_PATH` value does not fall back to `PATH`;
-remove or correct the environment variable to use the executable from `PATH`.
+An invalid `FFMPEG_PATH` or `FFPROBE_PATH` value does not fall back to
+`PATH`; remove or correct the environment variable to use the executable
+from `PATH`.
 
 ------------------------------------------------------------------------
 
@@ -94,8 +99,8 @@ npm install
 npm start
 ```
 
-Official releases are source-only. Prebuilt executables and NSIS installers are not
-distributed by the project.
+Official releases are source-only. Prebuilt executables and NSIS
+installers are not distributed by the project.
 
 Developers can create a local Windows package with:
 
@@ -103,9 +108,10 @@ Developers can create a local Windows package with:
 npm run dist
 ```
 
-Locally built packages are not official project distributions. Anyone redistributing
-a generated package is responsible for reviewing and complying with the licenses of
-the dependencies and native libraries included in that package.
+Locally built packages are not official project distributions. Anyone
+redistributing a generated package is responsible for reviewing and
+complying with the licenses of the dependencies and native libraries
+included in that package.
 
 ------------------------------------------------------------------------
 
@@ -153,6 +159,8 @@ media-thumbnail-explorer/
 │     └─ 0.x.x/
 │        ├─ README.md
 │        └─ screenshots/
+├─ scripts/
+│  └─ release-gate.js
 ├─ src/
 │  ├─ main.js
 │  ├─ preload.js
@@ -178,11 +186,12 @@ causes, and the fixes that followed.
 Latest release:
 
 ``` text
-v0.4.0
+v0.4.1
 ```
 
-v0.4.0 removes bundled FFmpeg / FFprobe binaries, updates Electron and sharp,
-and changes the official release policy to source-only distribution.
+v0.4.1 is a maintenance release that restores the missing v0.4.0
+version-specific development record and introduces a mechanical Release
+Gate. It does not change application features or UI behavior.
 
 See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
@@ -200,8 +209,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 ## Support
 
-Only the latest release is supported. Reports and information about older
-versions are welcome, but fixes are generally targeted at the latest release.
+Only the latest release is supported. Reports and information about
+older versions are welcome, but fixes are generally targeted at the
+latest release.
 
 Public contact: `dev@mozukusu-software.jpn.org`
 
@@ -209,9 +219,12 @@ Public contact: `dev@mozukusu-software.jpn.org`
 
 ## License
 
-Media Thumbnail Explorer is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+Media Thumbnail Explorer is licensed under the Apache License 2.0. See
+[LICENSE](LICENSE).
 
-Third-party dependencies remain subject to their own licenses. The project does not
-distribute prebuilt application binaries; users install dependencies locally with
-`npm install`. Developers who build or redistribute packaged binaries must review the
-licenses and redistribution requirements of the dependencies included in those binaries.
+Third-party dependencies remain subject to their own licenses. The
+project does not distribute prebuilt application binaries; users install
+dependencies locally with `npm install`. Developers who build or
+redistribute packaged binaries must review the licenses and
+redistribution requirements of the dependencies included in those
+binaries.
