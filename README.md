@@ -192,12 +192,6 @@ causes, and the fixes that followed.
 Latest release:
 
 ``` text
-v0.4.1
-```
-
-In development:
-
-``` text
 v0.5.0
 ```
 
