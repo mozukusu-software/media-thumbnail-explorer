@@ -33,11 +33,15 @@
       </section>
     </aside>
 
+    <div id="folderFileSplitter" class="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="フォルダーとメディアファイルの幅を変更" tabindex="0"></div>
+
     <section class="file-pane">
       <div class="pane-title"><span>メディアファイル</span><span id="fileCount" class="count">0件</span></div>
       <div id="fileList" class="file-list"></div>
       <div id="fileEmpty" class="empty-state">左のツリーからフォルダを選択してください</div>
     </section>
+
+    <div id="filePreviewSplitter" class="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="メディアファイルとプレビューの幅を変更" tabindex="0"></div>
 
     <section class="preview-pane">
       <div class="preview-toolbar">
@@ -66,7 +70,7 @@
     <div class="network-dialog-card tag-edit-card">
       <div id="tagEditDialogTitle" class="network-dialog-title">タグを追加・削除</div>
       <div id="tagEditTargetSummary" class="tag-edit-summary"></div>
-      <label class="network-dialog-label" for="tagEditNewTags">新しいタグ（カンマ区切り）</label>
+      <label class="network-dialog-label" for="tagEditNewTags">タグを追加（カンマ区切り）</label>
       <input id="tagEditNewTags" class="network-dialog-input" type="text" placeholder="旅行, 九州, 2026" maxlength="512" spellcheck="false">
       <div class="network-dialog-label tag-existing-label">既存のタグ</div>
       <div id="tagEditExistingTags" class="tag-edit-existing"></div>
@@ -74,6 +78,18 @@
       <div class="network-dialog-actions">
         <button id="tagEditCancel" type="button">キャンセル</button>
         <button id="tagEditSave" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tagDeleteConfirmDialog" class="network-dialog tag-delete-confirm-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="tagDeleteConfirmTitle">
+    <div class="network-dialog-card tag-delete-confirm-card">
+      <div id="tagDeleteConfirmTitle" class="network-dialog-title">タグを削除</div>
+      <div id="tagDeleteConfirmMessage" class="tag-delete-confirm-message"></div>
+      <div id="tagDeleteConfirmError" class="network-dialog-error hidden"></div>
+      <div class="network-dialog-actions">
+        <button id="tagDeleteNo" type="button">しない</button>
+        <button id="tagDeleteYes" type="button">する</button>
       </div>
     </div>
   </div>

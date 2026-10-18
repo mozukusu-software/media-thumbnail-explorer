@@ -34,10 +34,19 @@ test('preview uses one-line tag summary with overflow count instead of editable 
 });
 
 
-test('file list renders tag names in a dedicated Tags column', () => {
-  assert.match(app, /file-tags-column/);
-  assert.match(app, /tagColumn\.textContent = tags\.map\(\(tag\) => tag\.name\)\.join\(', '\)/);
-  assert.match(css, /grid-template-columns:\s*68px\s+minmax\(0, 1fr\)\s+minmax\(90px, 28%\)/);
+
+test('file list keeps filename on the first line and type, size, and tags together on the second line', () => {
+  includesAll(app, [
+    "const tagSummary = tags.length ? tags.map((tag) => tag.name).join(', ') : '—';",
+    "meta.textContent = `${file.type === 'image' ? '画像' : '動画'} · ${formatBytes(file.size)} · ${tagSummary}`;",
+    "row.append(thumbnail, details)"
+  ]);
+  assert.doesNotMatch(app, /file-tags-column|tagColumn/);
+  includesAll(css, [
+    '.file-row { display: grid; grid-template-columns: 68px minmax(0, 1fr);',
+    '.file-meta { margin-top: 3px; overflow: hidden;'
+  ]);
+  assert.doesNotMatch(css, /\.file-tags-column/);
 });
 
 
@@ -51,4 +60,74 @@ test('folder/tag splitter ratio persists and is restored on startup', () => {
     'localStorage.setItem(FOLDER_TAG_SPLIT_STORAGE_KEY, String(ratio))',
     'restoreFolderTagSplitRatio();'
   ]);
+});
+
+test('tag editor supports Enter save without swallowing IME composition', () => {
+  includesAll(app, [
+    "tagEditSave.addEventListener('click', saveTagEdits)",
+    "tagEditNewTags.addEventListener('keydown'",
+    "event.key !== 'Enter' || event.isComposing || event.keyCode === 229",
+    'saveTagEdits();'
+  ]);
+});
+
+test('tag editor is modal against outside clicks and provides permanent tag deletion confirmation', () => {
+  includesAll(html, [
+    'id="tagDeleteConfirmDialog"',
+    'id="tagDeleteConfirmMessage"',
+    'id="tagDeleteNo"',
+    'id="tagDeleteYes"',
+    '>しない<',
+    '>する<'
+  ]);
+  includesAll(app, [
+    'createTagDeleteButton(tag, row)',
+    'window.mediaExplorer.deleteTag(tag.id)',
+    'タグ「${tag.name}」を削除しますか？',
+    "tagDeleteConfirmDialog.classList.contains('hidden')"
+  ]);
+  assert.ok(!app.includes("tagEditDialog.addEventListener('click', (event) => { if (event.target === tagEditDialog) closeTagEditDialog(); });"));
+  includesAll(css, ['.tag-delete-button', '.tag-delete-confirm-dialog', 'z-index: 1500']);
+});
+
+test('tag editor keeps the new-tag input focused when the modal backdrop is clicked', () => {
+  includesAll(app, [
+    "tagEditDialog.addEventListener('pointerdown'",
+    'event.target !== tagEditDialog',
+    'event.preventDefault();',
+    'tagEditNewTags.focus({ preventScroll: true });'
+  ]);
+});
+
+test('workspace has draggable persistent splitters between folder, media, and preview panes', () => {
+  includesAll(html, [
+    'id="folderFileSplitter"',
+    'id="filePreviewSplitter"',
+    'aria-orientation="vertical"'
+  ]);
+  includesAll(css, [
+    '.workspace-splitter',
+    'cursor: col-resize',
+    'minmax(300px, 1fr)'
+  ]);
+  includesAll(app, [
+    "WORKSPACE_SPLIT_STORAGE_KEY = 'media-thumbnail-explorer:workspace-split-ratios'",
+    "folderFileSplitter.addEventListener('pointerdown'",
+    "filePreviewSplitter.addEventListener('pointerdown'",
+    'applyWorkspaceWidths(',
+    'saveWorkspaceSplitRatios()',
+    'restoreWorkspaceSplitRatios()',
+    'restoreWorkspaceSplitRatios();'
+  ]);
+});
+
+
+test('workspace splitters coexist with the two-line media-row layout', () => {
+  includesAll(css, [
+    '.workspace-splitter',
+    'grid-template-columns: minmax(210px, 17vw) 7px minmax(260px, 23vw) 7px minmax(300px, 1fr);',
+    '.file-row { display: grid; grid-template-columns: 68px minmax(0, 1fr);'
+  ]);
+  assert.doesNotMatch(css, /@container media-file-pane \(max-width: 440px\)/);
+  assert.doesNotMatch(css, /container-name:\s*media-file-pane/);
 });
