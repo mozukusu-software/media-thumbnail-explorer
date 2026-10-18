@@ -1,13 +1,14 @@
 {
   "name": "media-thumbnail-explorer",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Windows向け画像・動画サムネイルエクスプローラー",
   "main": "src/main.js",
   "author": "mozukuSu",
   "license": "Apache-2.0",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis"
+    "dist": "electron-builder --win nsis",
+    "release:gate": "node scripts/release-gate.js"
   },
   "dependencies": {
     "sharp": "^0.35.4"
